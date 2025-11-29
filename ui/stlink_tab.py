@@ -99,9 +99,12 @@ class StlinkTab(QWidget):
         """Открывает диалог для выбора файла"""
         file_name, _ = QFileDialog.getOpenFileName(self, "Выбрать STM32_Programmer_CLI.exe", "", "Executables (*.exe)")
         if file_name:
-            self.cli_path.setText(file_name)
-            self.save_cli_path(file_name)
-            self.check_stlink()
+            if self.validate_stm32_cli(file_name):
+                self.cli_path.setText(file_name)
+                self.save_cli_path(file_name)
+                self.check_stlink()
+            else:
+                QMessageBox.warning(self, "Ошибка", "Это не STM32CubeProgrammer CLI! Выберите правильный файл.")
 
     def search_cli(self):
         self.cli_path.setText("")
@@ -123,12 +126,12 @@ class StlinkTab(QWidget):
         if self.progress_dialog:
             self.progress_dialog.setRange(0, 100)
             self.progress_dialog.setValue(100)
-            if path:
+            if path and self.validate_stm32_cli(path):
                 self.progress_dialog.setLabelText(f"CLI найден: {path}")
                 self.cli_path.setText(path)
                 self.save_cli_path(path)
             else:
-                self.progress_dialog.setLabelText("CLI не найден.")
+                self.progress_dialog.setLabelText("CLI не найден или неверный.")
             self.progress_dialog.setCancelButtonText("Ok")
             self.progress_dialog.canceled.disconnect(self.on_search_canceled)
             self.progress_dialog.canceled.connect(self.progress_dialog.close)
@@ -138,9 +141,21 @@ class StlinkTab(QWidget):
             self.search_thread.requestInterruption()
             self.search_thread.wait()
 
+    def validate_stm32_cli(self, path):
+        try:
+            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=5)
+            return "STM32CubeProgrammer" in result.stdout
+        except Exception:
+            return False
+
     def save_cli_path(self, path):
-        settings = {'stm32_cli_path': path}
         settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r') as f:
+                settings = json.load(f)
+        else:
+            settings = {}
+        settings['stm32_cli_path'] = path
         with open(settings_path, 'w') as f:
             json.dump(settings, f)
 
@@ -149,9 +164,12 @@ class StlinkTab(QWidget):
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
-                self.cli_path.setText(settings.get('stm32_cli_path', ''))
-            if self.cli_path.text():
-                self.check_stlink()  # Автоматически проверяем, если путь загружен
+                path = settings.get('stm32_cli_path', '')
+                if path and self.validate_stm32_cli(path):
+                    self.cli_path.setText(path)
+                    self.check_stlink()  # Автоматически проверяем, если путь загружен
+                else:
+                    self.cli_path.setText('')
 
     def refresh_firmware_list(self):
         """Обновляет список прошивок из папки firmware"""
@@ -166,6 +184,9 @@ class StlinkTab(QWidget):
         cli_path = self.cli_path.text()
         if not cli_path:
             QMessageBox.warning(self, "Ошибка", "Укажите путь к STM32_Programmer_CLI.exe!")
+            return
+        if not self.validate_stm32_cli(cli_path):
+            QMessageBox.warning(self, "Ошибка", "Это не STM32CubeProgrammer CLI! Укажите правильный путь.")
             return
         try:
             result = subprocess.run([cli_path, "-c", "port=SWD"], capture_output=True, text=True, timeout=10)

@@ -81,7 +81,7 @@ class BlclTab(QWidget):
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
-        splitter.setSizes([650, 500])
+        splitter.setSizes([750, 500])
         layout.addWidget(splitter)
         self.setLayout(layout)
 
