@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget, QVBoxLayout, 
 from PyQt5.QtGui import QIcon
 from ui.blcl_tab import BlclTab
 from ui.stlink_tab import StlinkTab
-from ui.xilinx_tab import XilinxTab  # Новый импорт для Xilinx tab
+from ui.xilinx_tab import XilinxTab  
 from ui.styles import apply_dark_theme
 
 class MainWindow(QMainWindow):
@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(BlclTab(self), "BLCL Loader")
         tabs.addTab(StlinkTab(self), "STM32 ST-Link")
-        tabs.addTab(XilinxTab(self), "Xilinx JTAG")  # Новая вкладка
+        tabs.addTab(XilinxTab(self), "Xilinx JTAG")  
 
         central = QWidget()
         layout = QVBoxLayout(central)

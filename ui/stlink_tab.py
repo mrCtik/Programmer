@@ -1,16 +1,47 @@
 # ui/stlink_tab.py
 # Вкладка для прошивки STM32 через ST-Link
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog
+from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from core.stlink_flash import STM32FlashThread
 import os
 import subprocess
+import glob
+import json
+
+class SearchThread(QThread):
+    finished = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self._stop_requested = False
+
+    def requestInterruption(self):
+        self._stop_requested = True
+        super().requestInterruption()
+
+    def run(self):
+        possible_patterns = [
+            'C:/**/STM32_Programmer_CLI.exe',
+            'D:/**/STM32_Programmer_CLI.exe',
+            'E:/**/STM32_Programmer_CLI.exe',
+            # Добавьте другие диски при необходимости
+        ]
+        for pattern in possible_patterns:
+            if self._stop_requested:
+                self.finished.emit(None)
+                return
+            paths = glob.glob(pattern, recursive=True)
+            if paths:
+                self.finished.emit(paths[0])
+                return
+        self.finished.emit(None)
 
 class StlinkTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
-        self.auto_detect_cli_path()  # Автоматически ищем путь
+        self.load_cli_path()  # Загружаем сохраненный путь
 
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -21,9 +52,12 @@ class StlinkTab(QWidget):
         self.cli_path = QLineEdit()
         browse_btn = QPushButton("Обзор...")
         browse_btn.clicked.connect(self.browse_cli)
+        search_btn = QPushButton("Поиск")
+        search_btn.clicked.connect(self.search_cli)
         cli_path_layout.addWidget(self.cli_path_label)
         cli_path_layout.addWidget(self.cli_path)
         cli_path_layout.addWidget(browse_btn)
+        cli_path_layout.addWidget(search_btn)
         layout.addLayout(cli_path_layout)
 
         # Статус ST-Link
@@ -61,34 +95,63 @@ class StlinkTab(QWidget):
 
         self.setLayout(layout)
 
-    def auto_detect_cli_path(self):
-        """Автоматически ищет STM32_Programmer_CLI.exe"""
-        default_paths = [
-            r"C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe",
-            r"C:\ST\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe",
-            "STM32_Programmer_CLI"  # Если в PATH
-        ]
-        for path in default_paths:
-            if os.path.exists(path) or self.check_cli_executable(path):
-                self.cli_path.setText(path)
-                self.check_stlink()  # Автоматически проверяем
-                return
-        self.stm32_log.append("STM32_Programmer_CLI.exe не найден автоматически. Укажите путь вручную.")
-
-    def check_cli_executable(self, path):
-        """Проверяет, существует ли исполняемый файл"""
-        try:
-            subprocess.run([path, "--version"], capture_output=True, timeout=5)
-            return True
-        except:
-            return False
-
     def browse_cli(self):
         """Открывает диалог для выбора файла"""
         file_name, _ = QFileDialog.getOpenFileName(self, "Выбрать STM32_Programmer_CLI.exe", "", "Executables (*.exe)")
         if file_name:
             self.cli_path.setText(file_name)
+            self.save_cli_path(file_name)
             self.check_stlink()
+
+    def search_cli(self):
+        self.cli_path.setText("")
+        self.search_thread = SearchThread()
+        self.search_thread.finished.connect(self.on_search_finished)
+
+        self.progress_dialog = QProgressDialog("Поиск STM32_Programmer_CLI.exe... Это может занять время.", "Отмена", 0, 0, self)
+        self.progress_dialog.setWindowTitle("Поиск CLI")
+        self.progress_dialog.setMinimumWidth(400)
+        self.progress_dialog.setMinimumHeight(int(self.progress_dialog.height() * 1.1))
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.canceled.connect(self.on_search_canceled)
+
+        self.search_thread.start()
+        self.progress_dialog.exec_()
+
+    def on_search_finished(self, path):
+        if self.progress_dialog:
+            self.progress_dialog.setRange(0, 100)
+            self.progress_dialog.setValue(100)
+            if path:
+                self.progress_dialog.setLabelText(f"CLI найден: {path}")
+                self.cli_path.setText(path)
+                self.save_cli_path(path)
+            else:
+                self.progress_dialog.setLabelText("CLI не найден.")
+            self.progress_dialog.setCancelButtonText("Ok")
+            self.progress_dialog.canceled.disconnect(self.on_search_canceled)
+            self.progress_dialog.canceled.connect(self.progress_dialog.close)
+
+    def on_search_canceled(self):
+        if self.search_thread.isRunning():
+            self.search_thread.requestInterruption()
+            self.search_thread.wait()
+
+    def save_cli_path(self, path):
+        settings = {'stm32_cli_path': path}
+        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f)
+
+    def load_cli_path(self):
+        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r') as f:
+                settings = json.load(f)
+                self.cli_path.setText(settings.get('stm32_cli_path', ''))
+            if self.cli_path.text():
+                self.check_stlink()  # Автоматически проверяем, если путь загружен
 
     def refresh_firmware_list(self):
         """Обновляет список прошивок из папки firmware"""

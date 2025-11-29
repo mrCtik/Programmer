@@ -1,2 +1,10 @@
-*.jou
-*.log
+# Игнорировать папку .Xil и всё её содержимое
+.Xil/
+
+# Игнорировать файлы типа webtalk_*.backup.jou
+webtalk_*.backup.jou
+webtalk.jou
+
+# Игнорировать файлы типа webtalk_*.backup.log
+webtalk_*.backup.log
+webtalk.log

@@ -35,6 +35,9 @@ class BlclTab(QWidget):
         self.baud_combo.addItems(["115200"])
         self.baud_combo.setCurrentText("115200")
         com_row.addWidget(self.baud_combo)
+        refresh_btn = QPushButton("Обновить")
+        refresh_btn.clicked.connect(self.refresh_ports)
+        com_row.addWidget(refresh_btn)
         left.addLayout(com_row)
 
         # Файлы
@@ -121,10 +124,15 @@ class BlclTab(QWidget):
         import serial.tools.list_ports
         self.com_combo.clear()
         for p in serial.tools.list_ports.comports():
-            self.com_combo.addItem(p.device)
+            description = p.description
+            port_suffix = f" ({p.device})"
+            if description.endswith(port_suffix):
+                description = description[:-len(port_suffix)]
+            self.com_combo.addItem(f"{p.device} - {description}")
 
     def start_flash(self):
-        port = self.com_combo.currentText()
+        current_text = self.com_combo.currentText()
+        port = current_text.split(' - ')[0] if current_text else ''
         baud = int(self.baud_combo.currentText())
         if not port:
             QMessageBox.warning(self, "Ошибка", "Выберите COM порт!")
