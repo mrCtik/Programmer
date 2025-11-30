@@ -1,6 +1,5 @@
 # ui/xilinx_tab.py
 # Вкладка для прошивки Xilinx Configuration Memory Device через JTAG (.mcs)
-
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressBar, QProgressDialog
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from core.xilinx_flash import XilinxFlashThread
@@ -12,15 +11,12 @@ import json
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
-
     def __init__(self):
         super().__init__()
         self._stop_requested = False
-
     def requestInterruption(self):
         self._stop_requested = True
         super().requestInterruption()
-
     def run(self):
         possible_patterns = [
             'C:/**/vivado.bat',
@@ -52,7 +48,6 @@ class XilinxTab(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout()
-
         # Путь к CLI
         cli_path_layout = QHBoxLayout()
         self.cli_path_label = QLabel("Путь к CLI:")
@@ -66,7 +61,6 @@ class XilinxTab(QWidget):
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
         layout.addLayout(cli_path_layout)
-
         # Тип Config Memory
         flash_part_layout = QHBoxLayout()
         self.flash_part_label = QLabel("Тип Config Memory:")
@@ -74,7 +68,6 @@ class XilinxTab(QWidget):
         flash_part_layout.addWidget(self.flash_part_label)
         flash_part_layout.addWidget(self.flash_part)
         layout.addLayout(flash_part_layout)
-
         # Статус JTAG
         jtag_layout = QHBoxLayout()
         self.jtag_status = QLabel("JTAG: Не обнаружен")
@@ -85,11 +78,10 @@ class XilinxTab(QWidget):
         jtag_layout.addWidget(self.jtag_status)
         jtag_layout.addWidget(self.connect_btn)
         layout.addLayout(jtag_layout)
-
         # .mcs файл
         mcs_layout = QHBoxLayout()
         self.mcs_combo = QComboBox()
-        self.mcs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'mcs')
+        self.mcs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
         os.makedirs(self.mcs_dir, exist_ok=True)
         self.refresh_mcs_list()
         refresh_btn = QPushButton("Обновить")
@@ -98,20 +90,17 @@ class XilinxTab(QWidget):
         mcs_layout.addWidget(self.mcs_combo)
         mcs_layout.addWidget(refresh_btn)
         layout.addLayout(mcs_layout)
-
         # Кнопки для прошивки и очистки
         buttons_layout = QHBoxLayout()
         self.flash_btn = QPushButton("Прошить Xilinx Config Memory")
         self.flash_btn.clicked.connect(self.start_xilinx_flash)
         self.flash_btn.setEnabled(False)
         buttons_layout.addWidget(self.flash_btn)
-
         self.erase_btn = QPushButton("Очистить Xilinx Config Memory")
         self.erase_btn.clicked.connect(self.start_xilinx_erase)
         self.erase_btn.setEnabled(False)
         buttons_layout.addWidget(self.erase_btn)
         layout.addLayout(buttons_layout)
-
         # Прогресс бар
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
@@ -119,19 +108,15 @@ class XilinxTab(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
-
         # Таймер
         self.timer_label = QLabel("Время операции: 00:00")
         self.timer_label.setVisible(False)
         layout.addWidget(self.timer_label)
-
         # Лог
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         layout.addWidget(self.log)
-
         self.setLayout(layout)
-
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
         self.elapsed_time = 0
@@ -152,7 +137,6 @@ class XilinxTab(QWidget):
         self.cli_path.setText("")
         self.search_thread = SearchThread()
         self.search_thread.finished.connect(self.on_search_finished)
-
         self.progress_dialog = QProgressDialog("Поиск CLI... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -160,7 +144,6 @@ class XilinxTab(QWidget):
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.canceled.connect(self.on_search_canceled)
-
         self.search_thread.start()
         self.progress_dialog.exec_()
 
@@ -184,17 +167,25 @@ class XilinxTab(QWidget):
             self.search_thread.wait()
 
     def save_cli_path(self, path):
-        settings = {'cli_path': path}
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
+        os.makedirs(resources_dir, exist_ok=True)
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r') as f:
+                settings = json.load(f)
+        else:
+            settings = {}
+        settings['xilinx_cli_path'] = path
         with open(settings_path, 'w') as f:
             json.dump(settings, f)
 
     def load_cli_path(self):
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
-                self.cli_path.setText(settings.get('cli_path', ''))
+                self.cli_path.setText(settings.get('xilinx_cli_path', ''))
 
     def refresh_mcs_list(self):
         self.mcs_combo.clear()
@@ -272,25 +263,20 @@ connect -url $url
 targets
 exit
 """
-
             with tempfile.NamedTemporaryFile(delete=False, suffix='.tcl', mode='w') as tcl_file:
                 tcl_file.write(tcl_script)
                 tcl_path = tcl_file.name
-
             cmd = self.get_cmd(cli_path, tcl_path)
             self.log.append(f"Выполнение команды: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             os.unlink(tcl_path)
             self.log.append(self.filter_output(result.stdout + result.stderr))
-
             if result.returncode != 0:
                 self.log.append(f"Ошибка выполнения: код {result.returncode}")
                 return
-
             output = result.stdout + result.stderr
             filtered_output = self.filter_output(output)
             stdout_lower = filtered_output.lower()
-
             if "error" in stdout_lower or "no targets found" in stdout_lower or "no devices found" in stdout_lower or "unable to connect" in stdout_lower:
                 self.jtag_status.setText("JTAG: Не найден")
                 self.jtag_status.setStyleSheet("color: red;")

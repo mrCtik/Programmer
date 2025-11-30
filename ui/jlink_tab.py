@@ -1,6 +1,5 @@
 # ui/jlink_tab.py
 # Вкладка для прошивки hex и bin файлов через Segger J-Link
-
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from core.jlink_flash import JLinkFlashThread, JLinkEraseThread
@@ -12,15 +11,12 @@ import tempfile
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
-
     def __init__(self):
         super().__init__()
         self._stop_requested = False
-
     def requestInterruption(self):
         self._stop_requested = True
         super().requestInterruption()
-
     def run(self):
         possible_patterns = [
             'C:/**/SEGGER/**/JLink.exe',
@@ -46,12 +42,11 @@ class JlinkTab(QWidget):
         super().__init__(parent)
         self.is_target_connected = False
         self.setup_ui()
-        self.load_cli_path()  # Загружаем сохраненный путь (без автоматической проверки)
-        self.load_mcu_models()  # Загружаем сохраненные модели контроллеров
+        self.load_cli_path() # Загружаем сохраненный путь (без автоматической проверки)
+        self.load_mcu_models() # Загружаем сохраненные модели контроллеров
 
     def setup_ui(self):
         layout = QVBoxLayout()
-
         # Путь к JLink.exe или JLinkExe.exe
         cli_path_layout = QHBoxLayout()
         self.cli_path_label = QLabel("Путь к JLink.exe:")
@@ -65,7 +60,6 @@ class JlinkTab(QWidget):
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
         layout.addLayout(cli_path_layout)
-
         # Комбо-бокс для выбора контроллера
         device_layout = QHBoxLayout()
         self.device_label = QLabel("Контроллер:")
@@ -75,7 +69,6 @@ class JlinkTab(QWidget):
         device_layout.addWidget(self.device_label)
         device_layout.addWidget(self.device_combo)
         layout.addLayout(device_layout)
-
         # Статус J-Link программатора
         jlink_layout = QHBoxLayout()
         self.jlink_status = QLabel("J-Link: Не обнаружен")
@@ -86,7 +79,6 @@ class JlinkTab(QWidget):
         jlink_layout.addWidget(self.jlink_status)
         jlink_layout.addWidget(self.connect_btn)
         layout.addLayout(jlink_layout)
-
         # Статус подключения к устройству (target)
         target_layout = QHBoxLayout()
         self.target_status = QLabel("Target: Не подключен")
@@ -98,11 +90,10 @@ class JlinkTab(QWidget):
         target_layout.addWidget(self.target_status)
         target_layout.addWidget(self.target_btn)
         layout.addLayout(target_layout)
-
         # Файл для прошивки
         file_layout = QHBoxLayout()
         self.file_combo = QComboBox()
-        self.file_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'hex_bin')
+        self.file_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
         os.makedirs(self.file_dir, exist_ok=True)
         self.refresh_file_list()
         refresh_btn = QPushButton("Обновить")
@@ -111,25 +102,21 @@ class JlinkTab(QWidget):
         file_layout.addWidget(self.file_combo)
         file_layout.addWidget(refresh_btn)
         layout.addLayout(file_layout)
-
         # Кнопки Прошить и Очистить в одной строке
         buttons_layout = QHBoxLayout()
         self.flash_btn = QPushButton("Прошить")
         self.flash_btn.clicked.connect(self.start_jlink_flash)
         self.flash_btn.setEnabled(False)
         buttons_layout.addWidget(self.flash_btn)
-
         self.erase_btn = QPushButton("Очистить")
         self.erase_btn.clicked.connect(self.start_erase)
         self.erase_btn.setEnabled(False)
         buttons_layout.addWidget(self.erase_btn)
         layout.addLayout(buttons_layout)
-
         # Лог
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         layout.addWidget(self.log)
-
         self.setLayout(layout)
 
     def browse_cli(self):
@@ -146,7 +133,6 @@ class JlinkTab(QWidget):
         self.cli_path.setText("")
         self.search_thread = SearchThread()
         self.search_thread.finished.connect(self.on_search_finished)
-
         self.progress_dialog = QProgressDialog("Поиск JLink.exe... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -154,7 +140,6 @@ class JlinkTab(QWidget):
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.canceled.connect(self.on_search_canceled)
-
         self.search_thread.start()
         self.progress_dialog.exec_()
 
@@ -185,7 +170,9 @@ class JlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
+        os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
@@ -196,7 +183,8 @@ class JlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
@@ -209,21 +197,24 @@ class JlinkTab(QWidget):
     def save_mcu_model(self, model):
         if not model:
             return
-        settings_path = os.path.join(os.path.dirname(__file__), 'mcu.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        mcu_path = os.path.join(resources_dir, 'mcu.json')
+        os.makedirs(resources_dir, exist_ok=True)
+        if os.path.exists(mcu_path):
+            with open(mcu_path, 'r') as f:
                 models = json.load(f)
         else:
             models = []
         if model not in models:
             models.append(model)
-        with open(settings_path, 'w') as f:
+        with open(mcu_path, 'w') as f:
             json.dump(models, f)
 
     def load_mcu_models(self):
-        settings_path = os.path.join(os.path.dirname(__file__), 'mcu.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        mcu_path = os.path.join(resources_dir, 'mcu.json')
+        if os.path.exists(mcu_path):
+            with open(mcu_path, 'r') as f:
                 models = json.load(f)
                 if models:
                     self.device_combo.addItems(models)
@@ -248,7 +239,6 @@ class JlinkTab(QWidget):
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jlink', mode='w') as script_file:
                 script_file.write("ShowEmuList USB\nexit\n")
                 script_path = script_file.name
-
             result = subprocess.run([cli_path, "-CommanderScript", script_path], capture_output=True, text=True, timeout=10)
             os.unlink(script_path)
             self.log.append(result.stdout + result.stderr)
@@ -294,16 +284,13 @@ class JlinkTab(QWidget):
                     self.is_target_connected = True
                 script_file.write(script_content)
                 script_path = script_file.name
-
             # Увеличили таймаут до 20 секунд для стабильности
             result = subprocess.run([cli_path, "-CommanderScript", script_path], capture_output=True, text=True, timeout=20)
             os.unlink(script_path)
             self.log.append(result.stdout + result.stderr)
-
             if result.returncode != 0 or "ERROR" in result.stderr.upper():
                 QMessageBox.warning(self, "Ошибка", "Ошибка при подключении/отключении!")
                 return
-
             self.target_btn.setText(new_button_text)
             self.target_status.setText(new_status_text)
             self.target_status.setStyleSheet(f"color: {new_color};")
@@ -316,7 +303,7 @@ class JlinkTab(QWidget):
 
     def start_jlink_flash(self):
         if self.file_combo.count() == 0:
-            QMessageBox.warning(self, "Ошибка", "Нет файлов в папке hex_bin!")
+            QMessageBox.warning(self, "Ошибка", "Нет файлов в папке firmware!")
             return
         file_path = os.path.join(self.file_dir, self.file_combo.currentText())
         cli_path = self.cli_path.text()

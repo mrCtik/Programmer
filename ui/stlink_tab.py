@@ -1,6 +1,5 @@
 # ui/stlink_tab.py
 # Вкладка для прошивки STM32 через ST-Link
-
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from core.stlink_flash import STM32FlashThread
@@ -11,15 +10,12 @@ import json
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
-
     def __init__(self):
         super().__init__()
         self._stop_requested = False
-
     def requestInterruption(self):
         self._stop_requested = True
         super().requestInterruption()
-
     def run(self):
         possible_patterns = [
             'C:/**/STM32_Programmer_CLI.exe',
@@ -41,11 +37,10 @@ class StlinkTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
-        self.load_cli_path()  # Загружаем сохраненный путь
+        self.load_cli_path() # Загружаем сохраненный путь
 
     def setup_ui(self):
         layout = QVBoxLayout()
-
         # Путь к STM32_Programmer_CLI.exe
         cli_path_layout = QHBoxLayout()
         self.cli_path_label = QLabel("Путь к STM32_Programmer_CLI.exe:")
@@ -59,7 +54,6 @@ class StlinkTab(QWidget):
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
         layout.addLayout(cli_path_layout)
-
         # Статус ST-Link
         stlink_layout = QHBoxLayout()
         self.stlink_status = QLabel("ST-Link: Не обнаружен")
@@ -70,7 +64,6 @@ class StlinkTab(QWidget):
         stlink_layout.addWidget(self.stlink_status)
         stlink_layout.addWidget(self.connect_btn)
         layout.addLayout(stlink_layout)
-
         # Выбор прошивки
         firmware_layout = QHBoxLayout()
         self.firmware_combo = QComboBox()
@@ -82,17 +75,14 @@ class StlinkTab(QWidget):
         firmware_layout.addWidget(self.firmware_combo)
         firmware_layout.addWidget(refresh_btn)
         layout.addLayout(firmware_layout)
-
         self.stm32_flash_btn = QPushButton("Прошить STM32")
         self.stm32_flash_btn.clicked.connect(self.start_stm32_flash)
         self.stm32_flash_btn.setEnabled(False)
         layout.addWidget(self.stm32_flash_btn)
-
         # Лог
         self.stm32_log = QTextEdit()
         self.stm32_log.setReadOnly(True)
         layout.addWidget(self.stm32_log)
-
         self.setLayout(layout)
 
     def browse_cli(self):
@@ -110,7 +100,6 @@ class StlinkTab(QWidget):
         self.cli_path.setText("")
         self.search_thread = SearchThread()
         self.search_thread.finished.connect(self.on_search_finished)
-
         self.progress_dialog = QProgressDialog("Поиск STM32_Programmer_CLI.exe... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -118,7 +107,6 @@ class StlinkTab(QWidget):
         self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.canceled.connect(self.on_search_canceled)
-
         self.search_thread.start()
         self.progress_dialog.exec_()
 
@@ -149,7 +137,9 @@ class StlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
+        os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
@@ -160,14 +150,15 @@ class StlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
                 path = settings.get('stm32_cli_path', '')
                 if path and self.validate_stm32_cli(path):
                     self.cli_path.setText(path)
-                    self.check_stlink()  # Автоматически проверяем, если путь загружен
+                    self.check_stlink() # Автоматически проверяем, если путь загружен
                 else:
                     self.cli_path.setText('')
 
