@@ -10,59 +10,112 @@ class FlashThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(bool)
 
-    def __init__(self, port, baud, files_info):
+    def __init__(self, port, baud, files_info, verbose=False, try_cmd=0x7F):
         super().__init__()
         self.port = port
         self.baud = baud
         self.files_info = files_info
         self.chunk_size = 1024
-        self.timeout = 1.0
+        self.timeout = 10.0
+        self.verbose = verbose  # Флаг детального лога
+        self.try_cmd = try_cmd
 
     def run(self):
         try:
             ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
-            self.log.emit(f"Подключено к {self.port}")
+            self.log.emit(f"Подключено к {self.port} на {self.baud} baud")
 
-            try_pkt = create_blcl_packet(0x7F)
-            self.log.emit("Ожидание TryConnection...")
+            try_pkt = create_blcl_packet(self.try_cmd)
+            device_type = "FPGA" if self.try_cmd == 0x7F else "MCU"
+            self.log.emit(f"Ожидание запроса TryConnection от {device_type}: {' '.join(f'{b:02X}' for b in try_pkt)}")
             buffer = b''
             start_time = time.time()
-            while time.time() - start_time < 30:
+            while True:
+                if time.time() - start_time > 30:
+                    self.log.emit("Таймаут: запрос TryConnection не получен за 30 секунд")
+                    self.finished.emit(False)
+                    return
+
                 byte = ser.read(1)
                 if byte:
                     buffer += byte
-                if len(buffer) >= len(try_pkt) and buffer[-len(try_pkt):] == try_pkt:
-                    self.log.emit("Получен TryConnection → отвечаем")
-                    ser.write(try_pkt)
-                    break
-                elif len(buffer) >= len(try_pkt):
-                    buffer = buffer[1:]
+                    if self.verbose:
+                        self.log.emit(f"Получен байт: {byte[0]:02X} | Буфер: {' '.join(f'{b:02X}' for b in buffer)}")
+
+                if len(buffer) >= len(try_pkt):
+                    if buffer[-len(try_pkt):] == try_pkt:
+                        self.log.emit("Получен полный запрос TryConnection: " + ' '.join(f'{b:02X}' for b in try_pkt))
+                        ser.write(try_pkt)
+                        self.log.emit("Отправлен ответ TryConnection: " + ' '.join(f'{b:02X}' for b in try_pkt))
+                        break
+                    else:
+                        buffer = buffer[1:]
 
             total_chunks = sum((os.path.getsize(p) + self.chunk_size - 1) // self.chunk_size
-                               for p, _ in self.files_info if p)
+                               for p, _ in self.files_info if p and os.path.exists(p))
 
             current_chunk = 0
+
             for path, addr in self.files_info:
                 if not path or not os.path.exists(path):
                     continue
+
                 with open(path, 'rb') as f:
-                    data = f.read()
+                    bin_data = f.read()
 
-                write_addr = create_blcl_packet(0x01, addr.to_bytes(4, 'little') + len(data).to_bytes(4, 'little'))
+                size = len(bin_data)
+                if size == 0:
+                    continue
+
+                addr_bytes = addr.to_bytes(4, 'little')
+                size_bytes = size.to_bytes(4, 'little')
+                write_addr = create_blcl_packet(0x01, addr_bytes + size_bytes)
                 ser.write(write_addr)
-                ser.read(8)
+                if self.verbose:
+                    self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in write_addr))
+                response = ser.read(8)
+                if self.verbose:
+                    self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
+                if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
+                    self.log.emit("Ошибка: Ответ WriteAddress!")
+                    self.finished.emit(False)
+                    return
 
-                for i in range(0, len(data), self.chunk_size):
-                    chunk = data[i:i+self.chunk_size]
-                    ser.write(create_blcl_packet(0x03, chunk))
-                    ser.read(8)
+                self.log.emit("Успех: Получен ответ WriteAddress")
+
+                # WriteData chunks
+                for j in range(0, size, self.chunk_size):
+                    chunk = bin_data[j:j+self.chunk_size]
+                    write_data = create_blcl_packet(0x03, chunk)
+                    ser.write(write_data)
+                    if self.verbose:
+                        self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in write_data))
+                    response = ser.read(8)
+                    if self.verbose:
+                        self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
+                    if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
+                        self.log.emit("Ошибка: Ответ WriteData!")
+                        self.finished.emit(False)
+                        return
+
+                    self.log.emit("Успех: Получен ответ WriteData")
                     current_chunk += 1
-                    self.progress.emit(int(current_chunk / total_chunks * 100))
+                    self.progress.emit(int((current_chunk / total_chunks) * 100))
 
+            # Final TryConnection
             ser.write(try_pkt)
+            if self.verbose:
+                self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in try_pkt))
             response = ser.read(32)
-            if b'Start User App' in response:
-                self.log.emit("Успешно! Запущено пользовательское ПО")
+            if self.verbose:
+                self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
+            if b'Start User App \r\n' in response:
+                self.log.emit("Получен Start User App")
+            else:
+                self.log.emit("Ошибка: Не получен Start User App")
+                self.finished.emit(False)
+                return
+
             self.finished.emit(True)
         except Exception as e:
             self.log.emit(f"ОШИБКА: {e}")

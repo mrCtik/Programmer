@@ -1,0 +1,37 @@
+[
+  {
+    "name": "1ПН156",
+    "boards": [
+      {
+        "name": "СПЛР.469559.011 Плата интерфейсная",
+        "logic_type": "type1"
+      },
+      {
+        "name": "СПЛР.468312.004 Панель управления",
+        "logic_type": "type1"
+      }
+    ]
+  },
+  {
+    "name": "Кипарис",
+    "boards": [
+      {
+        "name": "BoardA",
+        "logic_type": "type1"
+      },
+      {
+        "name": "BoardB",
+        "logic_type": "type3"
+      }
+    ]
+  },
+  {
+    "name": "Кронштадт",
+    "boards": [
+      {
+        "name": "СПЛР.469559.032 Плата интерфейсная",
+        "logic_type": "type1"
+      }
+    ]
+  }
+]
