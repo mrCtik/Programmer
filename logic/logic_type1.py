@@ -56,6 +56,25 @@ def read_firmware_info(serial_port, parent_widget):
 
 def send_update(serial_port, version, date, parent_widget):
     try:
+        # Сначала ждем получения "Start User App" в ASCII
+        serial_port.reset_input_buffer()
+        buffer = bytearray()
+        start_time = time.time()
+        start_user_app_received = False
+        while time.time() - start_time < 10 and not start_user_app_received:
+            byte = serial_port.read(1)
+            if byte:
+                buffer.extend(byte)
+                if b'Start User App' in buffer:
+                    start_user_app_received = True
+                    # Очистка буфера после получения
+                    serial_port.reset_input_buffer()
+                    break
+
+        if not start_user_app_received:
+            raise Exception("Не получено 'Start User App' в течение 10 секунд после перезапуска.")
+
+        # Теперь формируем и отправляем обновление
         data = version.encode('utf-8') + b'\x00' + date.encode('utf-8') + b'\x00'
         data_len = len(data)
         msg = bytearray([0xAA, 0x02, data_len]) + data
@@ -63,6 +82,7 @@ def send_update(serial_port, version, date, parent_widget):
         msg.append(crc)
         serial_port.write(msg)
 
+        # Ждем подтверждения
         response = ""
         start_time = time.time()
         while time.time() - start_time < 5:

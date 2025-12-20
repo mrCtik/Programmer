@@ -177,49 +177,77 @@ class BlclTab(QWidget):
         mode_text = self.mode_combo.currentText()
         try_cmd = int(mode_text.split('(')[1].split(')')[0], 16)
 
+        paths = [self.file_fields[i].text() for i in range(3)]
+        addrs = [int(self.addr_fields[i].text(), 16) for i in range(3)]
         selected = [self.checkboxes[i].isChecked() for i in range(3)]
+
         files_info = []
 
         if try_cmd == 0x7E:  # MCU-режим: только MCU, без config/FPGA
-            mcu_path = self.file_fields[2].text()
-            if selected[2] and mcu_path and os.path.exists(mcu_path):
-                with open(mcu_path, 'rb') as f:
-                    mcu_data = f.read()
-                crc = calc_crc(mcu_data)
-                mcu_prog_bin = mcu_data + crc.to_bytes(4, 'little')
-                mcu_prog_dir = os.path.join(os.path.dirname(__file__), 'files')
-                os.makedirs(mcu_prog_dir, exist_ok=True)
-                mcu_prog_path = os.path.join(mcu_prog_dir, "mcu_prog.bin")
-                with open(mcu_prog_path, 'wb') as f:
-                    f.write(mcu_prog_bin)
-                files_info.append((mcu_prog_path, int(self.addr_fields[2].text(), 16)))
+            if selected[2] and paths[2] and os.path.exists(paths[2]):
+                with open(paths[2], 'rb') as f:
+                    data = f.read()
+                crc = calc_crc(data)
+                prog_data = data + crc.to_bytes(4, 'little')
+                prog_dir = os.path.join(os.path.dirname(__file__), 'files')
+                os.makedirs(prog_dir, exist_ok=True)
+                prog_path = os.path.join(prog_dir, "mcu_prog.bin")
+                with open(prog_path, 'wb') as f:
+                    f.write(prog_data)
+                files_info.append((prog_path, addrs[2]))
             if selected[0] or selected[1]:
                 self.log.append("Предупреждение: В MCU-режиме игнорируем FPGA-файлы. Config не создаётся.")
-        else:  # FPGA-режим: FPGA1/FPGA2 + config если >1
-            # FPGA2
-            if selected[1]:
-                fpga2_path = self.file_fields[1].text()
-                if fpga2_path and os.path.exists(fpga2_path):
-                    files_info.append((fpga2_path, int(self.addr_fields[1].text(), 16)))
+        else:  # FPGA-режим
+            # Собираем записи для config (всегда 3, с size=0 для не выбранных)
+            config_entries = []
+            for i in range(3):
+                path = paths[i]
+                addr = addrs[i]
+                if selected[i] and path and os.path.exists(path):
+                    if i == 2:  # MCU: size без CRC
+                        with open(path, 'rb') as f:
+                            data = f.read()
+                        size = len(data)
+                    else:  # FPGA
+                        size = os.path.getsize(path)
+                else:
+                    size = 0
+                config_entries.append((addr, size))
 
-            # FPGA1
-            if selected[0]:
-                fpga1_path = self.file_fields[0].text()
-                if fpga1_path and os.path.exists(fpga1_path):
-                    files_info.append((fpga1_path, int(self.addr_fields[0].text(), 16)))
+            num_nonzero = sum(size > 0 for _, size in config_entries)
 
-            if selected[2]:
-                self.log.append("Предупреждение: В FPGA-режиме игнорируем MCU-файл.")
-
-            num_selected_fpga = len(files_info)
-            if num_selected_fpga > 1:
-                config_bin = self.generate_config_file()
+            if num_nonzero > 1:
+                config_bin = bytearray()
+                for addr, size in config_entries:
+                    config_bin += addr.to_bytes(4, 'little') + size.to_bytes(4, 'little')
+                crc = calc_crc(config_bin)
+                config_bin += crc.to_bytes(4, 'little')
+                self.log.append("Config file HEX: " + ' '.join(f'{b:02X}' for b in config_bin))
                 config_dir = os.path.join(os.path.dirname(__file__), 'files')
                 os.makedirs(config_dir, exist_ok=True)
                 config_path = os.path.join(config_dir, "config_file.bin")
                 with open(config_path, 'wb') as f:
                     f.write(config_bin)
-                files_info = [(config_path, 0x100000)] + files_info  # config всегда 0x100000
+                files_info.append((config_path, 0x100000))
+
+            # Добавляем выбранные файлы для прошивки (MCU с +CRC)
+            for i in range(3):
+                path = paths[i]
+                addr = addrs[i]
+                if selected[i] and path and os.path.exists(path):
+                    if i == 2:  # MCU
+                        with open(path, 'rb') as f:
+                            data = f.read()
+                        crc = calc_crc(data)
+                        prog_data = data + crc.to_bytes(4, 'little')
+                        prog_dir = os.path.join(os.path.dirname(__file__), 'files')
+                        os.makedirs(prog_dir, exist_ok=True)
+                        prog_path = os.path.join(prog_dir, "mcu_prog.bin")
+                        with open(prog_path, 'wb') as f:
+                            f.write(prog_data)
+                        files_info.append((prog_path, addr))
+                    else:  # FPGA
+                        files_info.append((path, addr))
 
         if not files_info:
             QMessageBox.warning(self, "Ошибка", "Нет файлов для загрузки!")
@@ -238,24 +266,6 @@ class BlclTab(QWidget):
             self.log.append("Загрузка завершена успешно!")
         else:
             self.log.append("Загрузка прервана с ошибкой!")
-
-    def generate_config_file(self):
-        config_data = bytearray()
-        files_info = [
-            (self.file_fields[0].text(), int(self.addr_fields[0].text(), 16)),
-            (self.file_fields[1].text(), int(self.addr_fields[1].text(), 16)),
-            (self.file_fields[2].text(), int(self.addr_fields[2].text(), 16)),
-        ]
-        for path, addr in files_info:
-            if not path or not os.path.exists(path):
-                continue
-            size = os.path.getsize(path)
-            config_data += addr.to_bytes(4, 'little')
-            config_data += size.to_bytes(4, 'little')
-        crc = calc_crc(config_data)
-        config_data += crc.to_bytes(4, 'little')
-        self.log.append("Config file HEX: " + ' '.join(f'{b:02X}' for b in config_data))
-        return bytes(config_data)
 
     def save_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Сохранить лог", "", "Text (*.txt)")
