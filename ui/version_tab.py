@@ -35,10 +35,7 @@ class VersionPanel(QWidget):
         com_row.addWidget(QLabel("COM-порт:"))
         self.com_combo = QComboBox()
         self.refresh_com_ports()
-        refresh_btn = QPushButton("Обновить")
-        refresh_btn.clicked.connect(self.refresh_com_ports)
         com_row.addWidget(self.com_combo)
-        com_row.addWidget(refresh_btn)
         com_vbox.addLayout(com_row)
 
         # Строка Baudrate
@@ -52,6 +49,18 @@ class VersionPanel(QWidget):
 
         com_group.setLayout(com_vbox)
         layout.addWidget(com_group)
+
+        # Кнопки подключения и обновления под COM Settings
+        buttons_row = QHBoxLayout()
+        self.connect_btn = QPushButton("Подключиться")
+        self.connect_btn.setFixedHeight(40)
+        buttons_row.addWidget(self.connect_btn)
+
+        refresh_btn = QPushButton("Обновить")
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.clicked.connect(self.refresh_com_ports)
+        buttons_row.addWidget(refresh_btn)
+        layout.addLayout(buttons_row)
 
         # Выпадающий список проектов под панелью COM
         project_group = QGroupBox("Select Project")
@@ -78,12 +87,6 @@ class VersionPanel(QWidget):
         board_vbox.addLayout(board_row)
         board_group.setLayout(board_vbox)
         layout.addWidget(board_group)
-
-        # Кнопка подключения (вынесено из main.py)
-        self.connect_btn = QPushButton("Подключиться")
-        self.connect_btn.setFixedHeight(40)
-        self.connect_btn.clicked.connect(self.toggle_com_connection)
-        layout.addWidget(self.connect_btn)
 
         # Текущая информация о прошивке
         current_group = QGroupBox("Current Firmware Info")
@@ -132,6 +135,8 @@ class VersionPanel(QWidget):
 
         # Загружаем проекты (если нужно перезагрузить при init)
         self.load_projects()
+
+        self.connect_btn.clicked.connect(self.toggle_com_connection)
 
     def load_projects(self):
         json_path = 'resources/projects.json'
@@ -239,8 +244,12 @@ class VersionPanel(QWidget):
     def refresh_com_ports(self):
         self.com_combo.clear()
         ports = serial.tools.list_ports.comports()
-        for port in ports:
-            self.com_combo.addItem(port.device)
+        for p in ports:
+            description = p.description
+            port_suffix = f" ({p.device})"
+            if description.endswith(port_suffix):
+                description = description[:-len(port_suffix)]
+            self.com_combo.addItem(f"{p.device} - {description}")
 
     def toggle_com_connection(self):
         if self.is_com_connected:
@@ -249,7 +258,8 @@ class VersionPanel(QWidget):
             self.connect_com()
 
     def connect_com(self):
-        com_port = self.com_combo.currentText()
+        current_text = self.com_combo.currentText()
+        com_port = current_text.split(' - ')[0] if current_text else ''
         baud = int(self.baud_combo.currentText())
         if not com_port:
             QMessageBox.warning(self, "Ошибка", "Выберите COM-порт!")
@@ -259,10 +269,9 @@ class VersionPanel(QWidget):
             self.connect_btn.setText("Отключиться")
             self.set_enabled(True)
             self.is_com_connected = True
-            QMessageBox.information(self, "Успех", f"Подключено к {com_port}")
-            # Автоматически ждём и обновляем информацию после подключения
-            self.update_firmware_info()
+            QMessageBox.information(self, "Успех", f"Подключено к {current_text}")
         except Exception as e:
+            print(f"Error opening port: {e}")  # Добавлен print для отладки в консоль
             QMessageBox.warning(self, "Ошибка", f"Не удалось подключиться: {e}")
 
     def disconnect_com(self):

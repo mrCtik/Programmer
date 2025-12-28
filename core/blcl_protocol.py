@@ -1,6 +1,4 @@
-# core/blcl_protocol.py
 from PyQt5.QtCore import QThread, pyqtSignal
-import serial
 import time
 import os
 from utils.helpers import create_blcl_packet
@@ -10,20 +8,22 @@ class FlashThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(bool)
 
-    def __init__(self, port, baud, files_info, verbose=False, try_cmd=0x7F):
+    def __init__(self, ser, files_info, verbose=False, try_cmd=0x7F, clear_buffer=True):
         super().__init__()
-        self.port = port
-        self.baud = baud
+        self.ser = ser
         self.files_info = files_info
         self.chunk_size = 1024
         self.timeout = 10.0
         self.verbose = verbose  # Флаг детального лога
         self.try_cmd = try_cmd
+        self.clear_buffer = clear_buffer
 
     def run(self):
         try:
-            ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
-            self.log.emit(f"Подключено к {self.port} на {self.baud} baud")
+            if self.clear_buffer:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+            self.log.emit("Используется существующий открытый порт для прошивки")
 
             try_pkt = create_blcl_packet(self.try_cmd)
             device_type = "FPGA" if self.try_cmd == 0x7F else "MCU"
@@ -36,7 +36,7 @@ class FlashThread(QThread):
                     self.finished.emit(False)
                     return
 
-                byte = ser.read(1)
+                byte = self.ser.read(1)
                 if byte:
                     buffer += byte
                     if self.verbose:
@@ -45,7 +45,7 @@ class FlashThread(QThread):
                 if len(buffer) >= len(try_pkt):
                     if buffer[-len(try_pkt):] == try_pkt:
                         self.log.emit("Получен полный запрос TryConnection: " + ' '.join(f'{b:02X}' for b in try_pkt))
-                        ser.write(try_pkt)
+                        self.ser.write(try_pkt)
                         self.log.emit("Отправлен ответ TryConnection: " + ' '.join(f'{b:02X}' for b in try_pkt))
                         break
                     else:
@@ -70,10 +70,10 @@ class FlashThread(QThread):
                 addr_bytes = addr.to_bytes(4, 'little')
                 size_bytes = size.to_bytes(4, 'little')
                 write_addr = create_blcl_packet(0x01, addr_bytes + size_bytes)
-                ser.write(write_addr)
+                self.ser.write(write_addr)
                 if self.verbose:
                     self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in write_addr))
-                response = ser.read(8)
+                response = self.ser.read(8)
                 if self.verbose:
                     self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
                 if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
@@ -87,10 +87,10 @@ class FlashThread(QThread):
                 for j in range(0, size, self.chunk_size):
                     chunk = bin_data[j:j+self.chunk_size]
                     write_data = create_blcl_packet(0x03, chunk)
-                    ser.write(write_data)
+                    self.ser.write(write_data)
                     if self.verbose:
                         self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in write_data))
-                    response = ser.read(8)
+                    response = self.ser.read(8)
                     if self.verbose:
                         self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
                     if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
@@ -103,10 +103,10 @@ class FlashThread(QThread):
                     self.progress.emit(int((current_chunk / total_chunks) * 100))
 
             # Final TryConnection
-            ser.write(try_pkt)
+            self.ser.write(try_pkt)
             if self.verbose:
                 self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in try_pkt))
-            response = ser.read(32)
+            response = self.ser.read(32)
             if self.verbose:
                 self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
             if b'Start User App \r\n' in response:
