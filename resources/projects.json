@@ -30,7 +30,7 @@
     "boards": [
       {
         "name": "СПЛР.469559.032 Плата интерфейсная",
-        "logic_type": "type1"
+        "logic_type": "type2"
       }
     ]
   }

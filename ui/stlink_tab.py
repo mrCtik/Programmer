@@ -5,8 +5,8 @@ from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from core.stlink_flash import STM32FlashThread
 import os
 import subprocess
-import glob
 import json
+from utils.helpers import resource_path, find_stm32_cli  # Импорт resource_path и find_stm32_cli
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -17,21 +17,8 @@ class SearchThread(QThread):
         self._stop_requested = True
         super().requestInterruption()
     def run(self):
-        possible_patterns = [
-            'C:/**/STM32_Programmer_CLI.exe',
-            'D:/**/STM32_Programmer_CLI.exe',
-            'E:/**/STM32_Programmer_CLI.exe',
-            # Добавьте другие диски при необходимости
-        ]
-        for pattern in possible_patterns:
-            if self._stop_requested:
-                self.finished.emit(None)
-                return
-            paths = glob.glob(pattern, recursive=True)
-            if paths:
-                self.finished.emit(paths[0])
-                return
-        self.finished.emit(None)
+        path = find_stm32_cli()
+        self.finished.emit(path)
 
 class StlinkTab(QWidget):
     def __init__(self, parent=None):
@@ -137,7 +124,7 @@ class StlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -150,7 +137,7 @@ class StlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:

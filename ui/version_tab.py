@@ -9,6 +9,7 @@ import os
 from PyQt5.QtWidgets import QWidget, QGroupBox, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QLineEdit, QMessageBox, QComboBox
 from PyQt5.QtCore import Qt
 from logic import get_logic_module  # Импорт из logic/__init__.py
+from utils.helpers import resource_path  # Импорт resource_path
 
 class VersionPanel(QWidget):
     def __init__(self, parent=None):
@@ -139,7 +140,7 @@ class VersionPanel(QWidget):
         self.connect_btn.clicked.connect(self.toggle_com_connection)
 
     def load_projects(self):
-        json_path = 'resources/projects.json'
+        json_path = resource_path('resources/projects.json')
         if os.path.exists(json_path):
             with open(json_path, 'r', encoding='utf-8') as f:
                 self.projects = json.load(f)

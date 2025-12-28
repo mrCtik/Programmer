@@ -5,9 +5,9 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from core.jlink_flash import JLinkFlashThread, JLinkEraseThread
 import os
 import subprocess
-import glob
 import json
 import tempfile
+from utils.helpers import resource_path, find_jlink_exe  # Импорт resource_path и find_jlink_exe
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -18,24 +18,8 @@ class SearchThread(QThread):
         self._stop_requested = True
         super().requestInterruption()
     def run(self):
-        possible_patterns = [
-            'C:/**/SEGGER/**/JLink.exe',
-            'C:/**/SEGGER/**/JLinkExe.exe',
-            'D:/**/SEGGER/**/JLink.exe',
-            'D:/**/SEGGER/**/JLinkExe.exe',
-            'E:/**/SEGGER/**/JLink.exe',
-            'E:/**/SEGGER/**/JLinkExe.exe',
-            # Добавьте другие диски при необходимости
-        ]
-        for pattern in possible_patterns:
-            if self._stop_requested:
-                self.finished.emit(None)
-                return
-            paths = glob.glob(pattern, recursive=True)
-            if paths:
-                self.finished.emit(paths[0])
-                return
-        self.finished.emit(None)
+        path = find_jlink_exe()
+        self.finished.emit(path)
 
 class JlinkTab(QWidget):
     def __init__(self, parent=None):
@@ -170,7 +154,7 @@ class JlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -183,7 +167,7 @@ class JlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
@@ -197,7 +181,7 @@ class JlinkTab(QWidget):
     def save_mcu_model(self, model):
         if not model:
             return
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         mcu_path = os.path.join(resources_dir, 'mcu.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(mcu_path):
@@ -211,7 +195,7 @@ class JlinkTab(QWidget):
             json.dump(models, f)
 
     def load_mcu_models(self):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         mcu_path = os.path.join(resources_dir, 'mcu.json')
         if os.path.exists(mcu_path):
             with open(mcu_path, 'r') as f:

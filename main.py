@@ -19,12 +19,13 @@ from ui.jlink_tab import JlinkTab
 from ui.version_tab import VersionPanel  # Теперь включает COM
 from ui.styles import apply_dark_theme
 from utils.markdown_formatter import markdown_to_html  # Новый импорт
+from utils.helpers import resource_path  # Импорт resource_path
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("BLCL + STM32 + Xilinx Programmer")
-        self.setWindowIcon(QIcon("resources/icon.ico"))  # Путь к иконке в resources
+        self.setWindowIcon(QIcon(resource_path("resources/icon.ico")))  # Путь к иконке в resources
         self.resize(1400, 800)
 
         # Меню бар
@@ -143,7 +144,7 @@ class MainWindow(QMainWindow):
         dialog.exec_()
 
     def load_documentation(self):
-        doc_path = 'resources/documentation.md'  # Путь к документации в resources
+        doc_path = resource_path('resources/documentation.md')  # Путь к документации в resources
         if os.path.exists(doc_path):
             with open(doc_path, 'r', encoding='utf-8') as f:
                 md_content = f.read()

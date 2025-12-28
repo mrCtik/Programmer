@@ -6,8 +6,8 @@ from core.xilinx_flash import XilinxFlashThread
 import os
 import subprocess
 import tempfile
-import glob
 import json
+from utils.helpers import resource_path, find_xilinx_cli  # Импорт resource_path и find_xilinx_cli
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -18,27 +18,8 @@ class SearchThread(QThread):
         self._stop_requested = True
         super().requestInterruption()
     def run(self):
-        possible_patterns = [
-            'C:/**/vivado.bat',
-            'C:/**/vivado_lab.bat',
-            'C:/**/xsdb.bat',
-            'D:/**/vivado.bat',
-            'D:/**/vivado_lab.bat',
-            'D:/**/xsdb.bat',
-            'E:/**/vivado.bat',
-            'E:/**/vivado_lab.bat',
-            'E:/**/xsdb.bat',
-            # Добавьте другие диски при необходимости
-        ]
-        for pattern in possible_patterns:
-            if self._stop_requested:
-                self.finished.emit(None)
-                return
-            paths = glob.glob(pattern, recursive=True)
-            if paths:
-                self.finished.emit(paths[0])
-                return
-        self.finished.emit(None)
+        path = find_xilinx_cli()
+        self.finished.emit(path)
 
 class XilinxTab(QWidget):
     def __init__(self, parent=None):
@@ -81,7 +62,7 @@ class XilinxTab(QWidget):
         # .mcs файл
         mcs_layout = QHBoxLayout()
         self.mcs_combo = QComboBox()
-        self.mcs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
+        self.mcs_dir = os.path.join(os.path.dirname(__file__), 'firmware')
         os.makedirs(self.mcs_dir, exist_ok=True)
         self.refresh_mcs_list()
         refresh_btn = QPushButton("Обновить")
@@ -167,7 +148,7 @@ class XilinxTab(QWidget):
             self.search_thread.wait()
 
     def save_cli_path(self, path):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -180,7 +161,7 @@ class XilinxTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'resources')
+        resources_dir = resource_path(os.path.join('resources'))
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
