@@ -24,7 +24,7 @@ from ui.kit.appicon import app_icon
 from ui.kit.glass import GlassRoot
 from ui.kit.winstyle import dark_titlebars, taskbar_identity
 from utils.markdown_formatter import markdown_to_html  # Новый импорт
-from utils.helpers import resource_path  # Импорт resource_path
+from utils.helpers import resource_path, data_path
 
 APP_TITLE = "BLCL Programmer"
 
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         m_help.addAction("О программе", self._about)
 
     def _open_firmware_dir(self):
-        path = os.path.abspath("firmware")
+        path = data_path("firmware")
         if os.path.isdir(path):
             os.startfile(path)
         else:

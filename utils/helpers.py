@@ -63,3 +63,21 @@ def find_jlink_exe(drives=['C:', 'D:', 'E:']):
         if paths:
             return paths[0]
     return None
+
+def app_dir():
+    """Папка, рядом с которой лежат рабочие данные.
+
+    В собранном виде это папка с .exe, при запуске из исходников —
+    корень проекта. Не путать с resource_path(): тот отдаёт путь внутрь
+    временной распаковки PyInstaller, годный только на чтение —
+    записанное туда пропадает при выходе из программы.
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def data_path(*parts):
+    """Путь к рабочим данным рядом с программой: firmware, mcs,
+    настройки, промежуточные файлы прошивки."""
+    return os.path.join(app_dir(), *parts)

@@ -7,7 +7,7 @@ import os
 import subprocess
 import tempfile
 import json
-from utils.helpers import resource_path, find_xilinx_cli  # Импорт resource_path и find_xilinx_cli
+from utils.helpers import resource_path, find_xilinx_cli, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
@@ -64,7 +64,7 @@ class XilinxTab(QWidget):
         # .mcs файл
         mcs_layout = QHBoxLayout()
         self.mcs_combo = QComboBox()
-        self.mcs_dir = os.path.join(os.path.dirname(__file__), 'firmware')
+        self.mcs_dir = data_path('mcs')
         os.makedirs(self.mcs_dir, exist_ok=True)
         self.refresh_mcs_list()
         refresh_btn = QPushButton("Обновить")
@@ -153,7 +153,7 @@ class XilinxTab(QWidget):
             self.search_thread.wait()
 
     def save_cli_path(self, path):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -166,7 +166,7 @@ class XilinxTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:

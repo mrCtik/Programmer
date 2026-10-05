@@ -4,7 +4,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QCheckBox, QProgressBar, QFileDialog, QSplitter, QMessageBox, QGroupBox
 from PyQt5.QtCore import Qt
 from core.blcl_protocol import FlashThread
-from utils.helpers import calc_crc, create_blcl_packet
+from utils.helpers import calc_crc, create_blcl_packet, data_path
 import os
 import re
 import time
@@ -17,7 +17,7 @@ class BlclTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = parent  # Ссылка на MainWindow
-        self.firmware_dir = 'firmware'  # Папка с файлами прошивки
+        self.firmware_dir = data_path('firmware')
         self.file_fields = []
         self.addr_fields = []
         self.checkboxes = []
@@ -197,7 +197,7 @@ class BlclTab(QWidget):
                     data = f.read()
                 crc = calc_crc(data)
                 prog_data = data + crc.to_bytes(4, 'little')
-                prog_dir = os.path.join(os.path.dirname(__file__), 'files')
+                prog_dir = data_path('files')
                 os.makedirs(prog_dir, exist_ok=True)
                 prog_path = os.path.join(prog_dir, "mcu_prog.bin")
                 with open(prog_path, 'wb') as f:
@@ -231,7 +231,7 @@ class BlclTab(QWidget):
                 crc = calc_crc(config_bin)
                 config_bin += crc.to_bytes(4, 'little')
                 self.log.append("Config file HEX: " + ' '.join(f'{b:02X}' for b in config_bin))
-                config_dir = os.path.join(os.path.dirname(__file__), 'files')
+                config_dir = data_path('files')
                 os.makedirs(config_dir, exist_ok=True)
                 config_path = os.path.join(config_dir, "config_file.bin")
                 with open(config_path, 'wb') as f:
@@ -248,7 +248,7 @@ class BlclTab(QWidget):
                             data = f.read()
                         crc = calc_crc(data)
                         prog_data = data + crc.to_bytes(4, 'little')
-                        prog_dir = os.path.join(os.path.dirname(__file__), 'files')
+                        prog_dir = data_path('files')
                         os.makedirs(prog_dir, exist_ok=True)
                         prog_path = os.path.join(prog_dir, "mcu_prog.bin")
                         with open(prog_path, 'wb') as f:

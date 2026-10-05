@@ -7,7 +7,7 @@ import os
 import subprocess
 import json
 import tempfile
-from utils.helpers import resource_path, find_jlink_exe  # Импорт resource_path и find_jlink_exe
+from utils.helpers import resource_path, find_jlink_exe, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
@@ -78,7 +78,7 @@ class JlinkTab(QWidget):
         # Файл для прошивки
         file_layout = QHBoxLayout()
         self.file_combo = QComboBox()
-        self.file_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
+        self.file_dir = data_path('firmware')
         os.makedirs(self.file_dir, exist_ok=True)
         self.refresh_file_list()
         refresh_btn = QPushButton("Обновить")
@@ -159,7 +159,7 @@ class JlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -172,7 +172,7 @@ class JlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
@@ -186,7 +186,7 @@ class JlinkTab(QWidget):
     def save_mcu_model(self, model):
         if not model:
             return
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         mcu_path = os.path.join(resources_dir, 'mcu.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(mcu_path):
@@ -200,7 +200,7 @@ class JlinkTab(QWidget):
             json.dump(models, f)
 
     def load_mcu_models(self):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         mcu_path = os.path.join(resources_dir, 'mcu.json')
         if os.path.exists(mcu_path):
             with open(mcu_path, 'r') as f:

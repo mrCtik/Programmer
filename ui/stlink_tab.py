@@ -6,7 +6,7 @@ from core.stlink_flash import STM32FlashThread
 import os
 import subprocess
 import json
-from utils.helpers import resource_path, find_stm32_cli  # Импорт resource_path и find_stm32_cli
+from utils.helpers import resource_path, find_stm32_cli, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
@@ -57,7 +57,7 @@ class StlinkTab(QWidget):
         # Выбор прошивки
         firmware_layout = QHBoxLayout()
         self.firmware_combo = QComboBox()
-        self.firmware_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
+        self.firmware_dir = data_path('firmware')
         self.refresh_firmware_list()
         refresh_btn = QPushButton("Обновить")
         role(refresh_btn, "ghost")
@@ -131,7 +131,7 @@ class StlinkTab(QWidget):
             return False
 
     def save_cli_path(self, path):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         os.makedirs(resources_dir, exist_ok=True)
         if os.path.exists(settings_path):
@@ -144,7 +144,7 @@ class StlinkTab(QWidget):
             json.dump(settings, f)
 
     def load_cli_path(self):
-        resources_dir = resource_path(os.path.join('resources'))
+        resources_dir = data_path('resources')
         settings_path = os.path.join(resources_dir, 'settings.json')
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
