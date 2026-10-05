@@ -18,6 +18,51 @@ class FlashThread(QThread):
         self.try_cmd = try_cmd
         self.clear_buffer = clear_buffer
 
+    def read_with_trace(self, n, timeout_s, label):
+        """Читает до n байт, логируя КАЖДЫЙ подошедший кусок с таймингом.
+        Диагностика для случая, когда response = self.ser.read(n) молча
+        возвращает меньше байт, чем ожидалось - показывает, что реально
+        приходит и когда, вместо одной строки "Ошибка"."""
+        buf = bytearray()
+        t0 = time.time()
+        chunks = 0
+        self.log.emit(f"[trace:{label}] жду {n} байт, timeout={timeout_s}s")
+        while len(buf) < n and (time.time() - t0) < timeout_s:
+            chunk = self.ser.read(n - len(buf))
+            if chunk:
+                chunks += 1
+                buf += chunk
+                dt = time.time() - t0
+                self.log.emit(f"[trace:{label}] +{len(chunk)} байт @ {dt:.3f}s: " +
+                               ' '.join(f'{b:02X}' for b in chunk) +
+                               f"  (всего {len(buf)}/{n})")
+        dt = time.time() - t0
+        if len(buf) < n:
+            self.log.emit(f"[trace:{label}] ИТОГ: получено {len(buf)}/{n} байт за {dt:.3f}s "
+                           f"в {chunks} кусках -> " + (' '.join(f'{b:02X}' for b in buf) if buf else "(пусто)"))
+        else:
+            self.log.emit(f"[trace:{label}] ИТОГ: все {n} байт получены за {dt:.3f}s в {chunks} кусках")
+        return bytes(buf)
+
+    def drain_and_dump(self, seconds, label, prefix=b''):
+        """Дочитывает всё, что ещё присылает устройство, и печатает как текст.
+        Нужно, когда вместо 8-байтного ACK прилетает диагностическое
+        сообщение бутлоадера - иначе оно обрезается на первых 8 байтах."""
+        buf = bytearray(prefix)
+        t0 = time.time()
+        while (time.time() - t0) < seconds:
+            chunk = self.ser.read(256)
+            if chunk:
+                buf += chunk
+                t0 = time.time()   # продлеваем, пока данные идут
+        if not buf:
+            self.log.emit(f"[dump:{label}] ничего не пришло")
+            return bytes(buf)
+        text = buf.decode('utf-8', errors='replace').replace('\r\n', ' | ').replace('\r', ' ').replace('\n', ' | ')
+        self.log.emit(f"[dump:{label}] {len(buf)} байт текстом: {text}")
+        self.log.emit(f"[dump:{label}] hex: " + ' '.join(f'{b:02X}' for b in buf))
+        return bytes(buf)
+
     def run(self):
         try:
             if self.clear_buffer:
@@ -70,13 +115,18 @@ class FlashThread(QThread):
                 addr_bytes = addr.to_bytes(4, 'little')
                 size_bytes = size.to_bytes(4, 'little')
                 write_addr = create_blcl_packet(0x01, addr_bytes + size_bytes)
-                self.ser.write(write_addr)
-                if self.verbose:
-                    self.log.emit("Запрос: " + ' '.join(f'{b:02X}' for b in write_addr))
-                response = self.ser.read(8)
-                if self.verbose:
-                    self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
+                self.log.emit("Запрос (WriteAddress): " + ' '.join(f'{b:02X}' for b in write_addr) +
+                              f"  [addr=0x{addr:08X} size={size}]")
+                n_written = self.ser.write(write_addr)
+                self.ser.flush()
+                self.log.emit(f"[trace] ser.write() вернул {n_written} (ожидалось {len(write_addr)}), "
+                              f"in_waiting сразу после записи: {self.ser.in_waiting}")
+                response = self.read_with_trace(8, 12.0, "WriteAddress")
                 if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
+                    # Прилетел не ACK, а скорее всего диагностический текст от
+                    # бутлоадера - дочитываем его целиком, иначе видно только
+                    # первые 8 байт.
+                    self.drain_and_dump(2.0, "WriteAddress", prefix=response)
                     self.log.emit("Ошибка: Ответ WriteAddress!")
                     self.finished.emit(False)
                     return

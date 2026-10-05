@@ -5,12 +5,12 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButt
 from PyQt5.QtCore import Qt
 from core.blcl_protocol import FlashThread
 from utils.helpers import calc_crc, create_blcl_packet, data_path
+from ui.kit.glass import glow
+from ui.styles import THEME, group, role
 import os
 import re
 import time
 import struct
-from ui.kit.glass import glow
-from ui.styles import THEME, group, role
 
 class BlclTab(QWidget):
     def __init__(self, parent=None):
@@ -18,6 +18,7 @@ class BlclTab(QWidget):
         self.main_window = parent  # Ссылка на MainWindow
         self.firmware_dir = data_path('firmware')
         self.file_fields = []
+        self.file_exts = []
         self.addr_fields = []
         self.checkboxes = []
         self.setup_ui()
@@ -50,6 +51,11 @@ class BlclTab(QWidget):
         for label, default_addr, extension in files:
             self.add_file_row(left, label, default_addr, extension)
 
+        self.refresh_fw_btn = QPushButton("Обновить список прошивок")
+        role(self.refresh_fw_btn, "ghost")
+        self.refresh_fw_btn.clicked.connect(self.refresh_firmware_lists)
+        left.addWidget(self.refresh_fw_btn)
+
         self.status_label = QLabel("config_file.bin → 0x100000 (будет создан только для FPGA если нужно)")
         role(self.status_label, "dim")
         left.addWidget(self.status_label)
@@ -80,7 +86,12 @@ class BlclTab(QWidget):
         right_widget.setLayout(right)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        right.addWidget(group("Журнал", self.log))
+
+        self.clear_log_btn = QPushButton("Clear Log")
+        role(self.clear_log_btn, "ghost")
+        self.clear_log_btn.clicked.connect(self.log.clear)
+
+        right.addWidget(group("Журнал", self.log, self.clear_log_btn))
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
@@ -120,16 +131,34 @@ class BlclTab(QWidget):
         device_type = "FPGA" if try_cmd == 0x7F else "MCU"
         self.log.append(f"Ожидаемая команда TryConnection для {device_type}: {' '.join(f'{b:02X}' for b in try_pkt)}")
 
+    def _fill_file_combo(self, field, extension):
+        """Перечитывает папку firmware, сохраняя текущий выбор, если файл на месте."""
+        current = field.currentText()
+        field.blockSignals(True)
+        field.clear()
+        field.addItem("")  # Пустой вариант
+        if os.path.exists(self.firmware_dir):
+            for filename in sorted([f for f in os.listdir(self.firmware_dir)
+                                    if f.lower().endswith(extension.lower())]):
+                field.addItem(filename)
+        idx = field.findText(current)
+        field.setCurrentIndex(idx if idx >= 0 else 0)
+        field.blockSignals(False)
+
+    def refresh_firmware_lists(self):
+        """Обновляет выпадающие списки прошивок — после новой сборки перезапуск не нужен."""
+        for field, ext in zip(self.file_fields, self.file_exts):
+            self._fill_file_combo(field, ext)
+        count = sum(max(0, f.count() - 1) for f in self.file_fields)
+        self.log.append(f"Список прошивок обновлён ({self.firmware_dir}): найдено файлов — {count}")
+
     def add_file_row(self, layout, label_text, default_addr, extension):
         group = QGroupBox(label_text)
         vbox = QVBoxLayout()
 
         h1 = QHBoxLayout()
         field = QComboBox()
-        field.addItem("")  # Пустой вариант
-        if os.path.exists(self.firmware_dir):
-            for filename in sorted([f for f in os.listdir(self.firmware_dir) if f.lower().endswith(extension.lower())]):
-                field.addItem(filename)
+        self._fill_file_combo(field, extension)
         h1.addWidget(field)
         vbox.addLayout(h1)
 
@@ -148,6 +177,7 @@ class BlclTab(QWidget):
         layout.addWidget(group)
 
         self.file_fields.append(field)
+        self.file_exts.append(extension)
         self.addr_fields.append(addr_field)
         self.checkboxes.append(chk)
 
