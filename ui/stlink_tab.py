@@ -47,7 +47,11 @@ class StlinkTab(QWidget):
         firmware_layout = QHBoxLayout()
         self.firmware_combo = QComboBox()
         self.firmware_dir = data_path('firmware')
+        self._known_files = []
         self.refresh_firmware_list()
+        self.fw_watcher = tools.FolderWatcher(
+            self.firmware_dir,
+            lambda: self.refresh_firmware_list(announce=True), parent=self)
         refresh_btn = QPushButton("Обновить")
         role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_firmware_list)
@@ -132,13 +136,14 @@ class StlinkTab(QWidget):
         else:
             self.cli_path.setText('')
 
-    def refresh_firmware_list(self):
+    def refresh_firmware_list(self, announce=False):
         """Обновляет список прошивок из папки firmware"""
-        self.firmware_combo.clear()
-        if os.path.exists(self.firmware_dir):
-            for f in os.listdir(self.firmware_dir):
-                if f.lower().endswith(('.bin', '.hex')):
-                    self.firmware_combo.addItem(f)
+        names = tools.fill_combo(self.firmware_combo, self.firmware_dir,
+                                 ('.bin', '.hex'))
+        if announce and names != self._known_files:
+            self.stm32_log.append(
+                f"Список прошивок обновлён: файлов — {len(names)}")
+        self._known_files = names
 
     def check_stlink(self):
         """Проверяет подключение ST-Link. В фоне: раньше окно замирало

@@ -52,7 +52,11 @@ class XilinxTab(QWidget):
         self.mcs_combo = QComboBox()
         self.mcs_dir = data_path('mcs')
         os.makedirs(self.mcs_dir, exist_ok=True)
+        self._known_files = []
         self.refresh_mcs_list()
+        self.mcs_watcher = tools.FolderWatcher(
+            self.mcs_dir, lambda: self.refresh_mcs_list(announce=True),
+            parent=self)
         refresh_btn = QPushButton("Обновить")
         role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_mcs_list)
@@ -144,12 +148,11 @@ class XilinxTab(QWidget):
         path = tools.get_setting('xilinx_cli_path')
         self.cli_path.setText(path if path and os.path.exists(path) else '')
 
-    def refresh_mcs_list(self):
-        self.mcs_combo.clear()
-        if os.path.exists(self.mcs_dir):
-            for f in os.listdir(self.mcs_dir):
-                if f.lower().endswith('.mcs'):
-                    self.mcs_combo.addItem(f)
+    def refresh_mcs_list(self, announce=False):
+        names = tools.fill_combo(self.mcs_combo, self.mcs_dir, ('.mcs',))
+        if announce and names != self._known_files:
+            self.log.append(f"Список .mcs обновлён: файлов — {len(names)}")
+        self._known_files = names
 
     def get_cmd(self, cli_path, tcl_path):
         base_name = os.path.basename(cli_path).lower()

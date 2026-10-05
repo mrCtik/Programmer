@@ -10,7 +10,8 @@ import os
 import subprocess
 import tempfile
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import (QFileSystemWatcher, QObject, QThread, QTimer,
+                          pyqtSignal)
 
 from utils import proc
 from utils.helpers import data_path
@@ -129,3 +130,66 @@ def drop_temp(path):
             os.unlink(path)
     except OSError:
         pass
+
+
+def fill_combo(combo, directory, extensions, empty_first=False):
+    """Перечитывает папку в выпадающий список, сохраняя выбранное.
+
+    Возвращает список имён. Выбор сохраняется обязательно: список
+    перечитывается сам при появлении файла в папке, и сбрасывать при
+    этом то, что человек уже выбрал, нельзя.
+    """
+    exts = tuple(e.lower() for e in extensions)
+    names = []
+    if os.path.isdir(directory):
+        names = sorted(f for f in os.listdir(directory)
+                       if f.lower().endswith(exts))
+
+    current = combo.currentText()
+    combo.blockSignals(True)
+    combo.clear()
+    if empty_first:
+        combo.addItem("")
+    combo.addItems(names)
+    idx = combo.findText(current)
+    combo.setCurrentIndex(idx if idx >= 0 else 0)
+    combo.blockSignals(False)
+    return names
+
+
+class FolderWatcher(QObject):
+    """Следит за папкой и зовёт on_change, когда в ней что-то меняется.
+
+    Нужно, чтобы новая прошивка, положенная в папку при открытой
+    программе, появлялась в списке сама. Срабатывания копятся в таймер:
+    копирование файла даёт несколько событий подряд, а большой .bit
+    успевает дописаться за время задержки.
+    """
+
+    def __init__(self, directory, on_change, delay_ms=800, parent=None):
+        super().__init__(parent)
+        self.directory = directory
+        self._on_change = on_change
+        self._watcher = QFileSystemWatcher(self)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(delay_ms)
+        self._timer.timeout.connect(self._fire)
+        self._watcher.directoryChanged.connect(self._on_dir_changed)
+        self.start()
+
+    def start(self):
+        if os.path.isdir(self.directory) \
+                and self.directory not in self._watcher.directories():
+            self._watcher.addPath(self.directory)
+
+    def _on_dir_changed(self, _path):
+        self._timer.start()
+
+    def _fire(self):
+        # после некоторых операций (папку пересоздали) путь слетает
+        self.start()
+        try:
+            self._on_change()
+        except Exception as e:
+            print(f"[watch] {self.directory}: {e}")

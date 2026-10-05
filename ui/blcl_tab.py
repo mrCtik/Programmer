@@ -4,6 +4,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QCheckBox, QProgressBar, QFileDialog, QSplitter, QMessageBox, QGroupBox
 from PyQt5.QtCore import Qt
 from core.blcl_protocol import FlashThread
+from utils import tools
 from utils.helpers import calc_crc, create_blcl_packet, data_path
 from ui.kit.glass import glow
 from ui.styles import THEME, group, role
@@ -17,6 +18,7 @@ class BlclTab(QWidget):
         super().__init__(parent)
         self.main_window = parent  # Ссылка на MainWindow
         self.firmware_dir = data_path('firmware')
+        self._known_files = []
         self.file_fields = []
         self.file_exts = []
         self.addr_fields = []
@@ -106,6 +108,13 @@ class BlclTab(QWidget):
         # Подключаем сигнал для MCU комбо
         self.file_fields[2].currentTextChanged.connect(self.update_version_from_file)
 
+        # запоминаем исходный состав папки тем же способом, которым
+        # он потом сверяется, иначе первое же срабатывание сторожа
+        # напишет в журнал «обновлён» на ровном месте
+        self.refresh_firmware_lists(announce=False)
+        self.fw_watcher = tools.FolderWatcher(
+            self.firmware_dir, self.refresh_firmware_lists, parent=self)
+
     def update_mcu_address(self):
         """НОВОЕ: Обновление default-адреса MCU при смене режима"""
         mode_text = self.mode_combo.currentText()
@@ -133,24 +142,21 @@ class BlclTab(QWidget):
 
     def _fill_file_combo(self, field, extension):
         """Перечитывает папку firmware, сохраняя текущий выбор, если файл на месте."""
-        current = field.currentText()
-        field.blockSignals(True)
-        field.clear()
-        field.addItem("")  # Пустой вариант
-        if os.path.exists(self.firmware_dir):
-            for filename in sorted([f for f in os.listdir(self.firmware_dir)
-                                    if f.lower().endswith(extension.lower())]):
-                field.addItem(filename)
-        idx = field.findText(current)
-        field.setCurrentIndex(idx if idx >= 0 else 0)
-        field.blockSignals(False)
+        return tools.fill_combo(field, self.firmware_dir, (extension,),
+                                empty_first=True)
 
-    def refresh_firmware_lists(self):
-        """Обновляет выпадающие списки прошивок — после новой сборки перезапуск не нужен."""
+    def refresh_firmware_lists(self, announce=True):
+        """Обновляет выпадающие списки прошивок — перезапуск не нужен ни
+        после новой сборки, ни когда файл положили в папку при открытой
+        программе."""
+        found = []
         for field, ext in zip(self.file_fields, self.file_exts):
-            self._fill_file_combo(field, ext)
-        count = sum(max(0, f.count() - 1) for f in self.file_fields)
-        self.log.append(f"Список прошивок обновлён ({self.firmware_dir}): найдено файлов — {count}")
+            found += self._fill_file_combo(field, ext)
+        if announce and found != self._known_files:
+            self.log.append(
+                f"Список прошивок обновлён ({self.firmware_dir}): "
+                f"найдено файлов — {len(found)}")
+        self._known_files = found
 
     def add_file_row(self, layout, label_text, default_addr, extension):
         group = QGroupBox(label_text)

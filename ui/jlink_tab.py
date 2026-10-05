@@ -68,7 +68,13 @@ class JlinkTab(QWidget):
         self.file_combo = QComboBox()
         self.file_dir = data_path('firmware')
         os.makedirs(self.file_dir, exist_ok=True)
+        self._known_files = []
         self.refresh_file_list()
+        # новую прошивку, положенную в папку при открытой программе,
+        # подхватываем сами
+        self.fw_watcher = tools.FolderWatcher(
+            self.file_dir, lambda: self.refresh_file_list(announce=True),
+            parent=self)
         refresh_btn = QPushButton("Обновить")
         role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_file_list)
@@ -176,12 +182,12 @@ class JlinkTab(QWidget):
             self.device_combo.addItems(models)
             self.device_combo.setCurrentText(models[-1])
 
-    def refresh_file_list(self):
-        self.file_combo.clear()
-        if os.path.exists(self.file_dir):
-            for f in os.listdir(self.file_dir):
-                if f.lower().endswith(('.hex', '.bin')):
-                    self.file_combo.addItem(f)
+    def refresh_file_list(self, announce=False):
+        names = tools.fill_combo(self.file_combo, self.file_dir,
+                                 ('.hex', '.bin'))
+        if announce and names != self._known_files:
+            self.log.append(f"Список прошивок обновлён: файлов — {len(names)}")
+        self._known_files = names
 
     def check_jlink(self):
         cli_path = self.cli_path.text()
