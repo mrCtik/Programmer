@@ -8,6 +8,9 @@ import subprocess
 import json
 import tempfile
 from utils.helpers import resource_path, find_jlink_exe  # Импорт resource_path и find_jlink_exe
+from ui.kit.glass import glow
+from ui.kit.widgets import Pill
+from ui.styles import THEME, group, role
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -36,14 +39,15 @@ class JlinkTab(QWidget):
         self.cli_path_label = QLabel("Путь к JLink.exe:")
         self.cli_path = QLineEdit()
         browse_btn = QPushButton("Обзор...")
+        role(browse_btn, "ghost")
         browse_btn.clicked.connect(self.browse_cli)
         search_btn = QPushButton("Поиск")
+        role(search_btn, "ghost")
         search_btn.clicked.connect(self.search_cli)
         cli_path_layout.addWidget(self.cli_path_label)
         cli_path_layout.addWidget(self.cli_path)
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
-        layout.addLayout(cli_path_layout)
         # Комбо-бокс для выбора контроллера
         device_layout = QHBoxLayout()
         self.device_label = QLabel("Контроллер:")
@@ -52,28 +56,25 @@ class JlinkTab(QWidget):
         self.device_combo.setInsertPolicy(QComboBox.InsertAtTop)
         device_layout.addWidget(self.device_label)
         device_layout.addWidget(self.device_combo)
-        layout.addLayout(device_layout)
         # Статус J-Link программатора
         jlink_layout = QHBoxLayout()
-        self.jlink_status = QLabel("J-Link: Не обнаружен")
-        self.jlink_status.setStyleSheet("color: red;")
+        self.jlink_status = Pill("Не обнаружен", "off")
         self.connect_btn = QPushButton("Проверить J-Link")
+        role(self.connect_btn, "ghost")
         self.connect_btn.clicked.connect(self.check_jlink)
         jlink_layout.addWidget(QLabel("Программатор:"))
         jlink_layout.addWidget(self.jlink_status)
         jlink_layout.addWidget(self.connect_btn)
-        layout.addLayout(jlink_layout)
         # Статус подключения к устройству (target)
         target_layout = QHBoxLayout()
-        self.target_status = QLabel("Target: Не подключен")
-        self.target_status.setStyleSheet("color: red;")
+        self.target_status = Pill("Не подключен", "off")
         self.target_btn = QPushButton("Подключиться")
+        role(self.target_btn, "ghost")
         self.target_btn.clicked.connect(self.toggle_target)
         self.target_btn.setEnabled(False)
         target_layout.addWidget(QLabel("Устройство:"))
         target_layout.addWidget(self.target_status)
         target_layout.addWidget(self.target_btn)
-        layout.addLayout(target_layout)
         # Файл для прошивки
         file_layout = QHBoxLayout()
         self.file_combo = QComboBox()
@@ -81,26 +82,30 @@ class JlinkTab(QWidget):
         os.makedirs(self.file_dir, exist_ok=True)
         self.refresh_file_list()
         refresh_btn = QPushButton("Обновить")
+        role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_file_list)
         file_layout.addWidget(QLabel("Файл (.hex/.bin):"))
         file_layout.addWidget(self.file_combo)
         file_layout.addWidget(refresh_btn)
-        layout.addLayout(file_layout)
         # Кнопки Прошить и Очистить в одной строке
         buttons_layout = QHBoxLayout()
         self.flash_btn = QPushButton("Прошить")
+        glow(self.flash_btn, THEME.g1, 22, 90)
         self.flash_btn.clicked.connect(self.start_jlink_flash)
         self.flash_btn.setEnabled(False)
         buttons_layout.addWidget(self.flash_btn)
         self.erase_btn = QPushButton("Очистить")
+        role(self.erase_btn, "danger")
         self.erase_btn.clicked.connect(self.start_erase)
         self.erase_btn.setEnabled(False)
         buttons_layout.addWidget(self.erase_btn)
-        layout.addLayout(buttons_layout)
         # Лог
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        layout.addWidget(self.log)
+        layout.addWidget(group("Программатор", cli_path_layout,
+                               device_layout, jlink_layout, target_layout))
+        layout.addWidget(group("Прошивка", file_layout, buttons_layout))
+        layout.addWidget(group("Журнал", self.log), 1)
         self.setLayout(layout)
 
     def browse_cli(self):
@@ -227,14 +232,12 @@ class JlinkTab(QWidget):
             os.unlink(script_path)
             self.log.append(result.stdout + result.stderr)
             if "J-Link" in result.stdout:
-                self.jlink_status.setText("J-Link: Подключен")
-                self.jlink_status.setStyleSheet("color: green;")
+                self.jlink_status.set_state("on", "Подключен")
                 self.target_btn.setEnabled(True)
                 self.flash_btn.setEnabled(True)
                 self.erase_btn.setEnabled(True)
             else:
-                self.jlink_status.setText("J-Link: Не найден")
-                self.jlink_status.setStyleSheet("color: red;")
+                self.jlink_status.set_state("err", "Не найден")
                 self.target_btn.setEnabled(False)
                 self.flash_btn.setEnabled(False)
                 self.erase_btn.setEnabled(False)
@@ -256,15 +259,15 @@ class JlinkTab(QWidget):
                     # Полный скрипт для отключения с инициализацией
                     script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\ng\nexit\n"
                     new_button_text = "Подключиться"
-                    new_status_text = "Target: Не подключен"
-                    new_color = "red"
+                    new_status_text = "Не подключен"
+                    new_state = "off"
                     self.is_target_connected = False
                 else:
                     # Скрипт для подключения
                     script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\nregs\nexit\n"
                     new_button_text = "Отключиться"
-                    new_status_text = "Target: Подключен"
-                    new_color = "green"
+                    new_status_text = "Подключен"
+                    new_state = "on"
                     self.is_target_connected = True
                 script_file.write(script_content)
                 script_path = script_file.name
@@ -276,8 +279,7 @@ class JlinkTab(QWidget):
                 QMessageBox.warning(self, "Ошибка", "Ошибка при подключении/отключении!")
                 return
             self.target_btn.setText(new_button_text)
-            self.target_status.setText(new_status_text)
-            self.target_status.setStyleSheet(f"color: {new_color};")
+            self.target_status.set_state(new_state, new_status_text)
         except subprocess.TimeoutExpired:
             self.log.append("Ошибка: Таймаут при выполнении команды.")
             QMessageBox.warning(self, "Ошибка", "Таймаут при подключении/отключении! Проверьте устройство.")

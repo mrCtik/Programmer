@@ -10,6 +10,9 @@ from PyQt5.QtWidgets import QWidget, QGroupBox, QVBoxLayout, QLabel, QPushButton
 from PyQt5.QtCore import Qt
 from logic import get_logic_module  # Импорт из logic/__init__.py
 from utils.helpers import resource_path  # Импорт resource_path
+from ui.kit.glass import glow
+from ui.kit.widgets import Pill
+from ui.styles import THEME, role
 
 class VersionPanel(QWidget):
     def __init__(self, parent=None):
@@ -29,7 +32,7 @@ class VersionPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # ── COM Settings ───────────────────────────────────────────────
-        com_group = QGroupBox("COM Settings")
+        com_group = QGroupBox("Подключение")
         com_vbox = QVBoxLayout()
 
         com_row = QHBoxLayout()
@@ -53,17 +56,19 @@ class VersionPanel(QWidget):
         # Кнопки подключения / обновления портов
         buttons_row = QHBoxLayout()
         self.connect_btn = QPushButton("Подключиться")
+        glow(self.connect_btn, THEME.g1, 22, 90)
         self.connect_btn.setFixedHeight(40)
         buttons_row.addWidget(self.connect_btn)
 
         refresh_btn = QPushButton("Обновить")
+        role(refresh_btn, "ghost")
         refresh_btn.setFixedHeight(40)
         refresh_btn.clicked.connect(self.refresh_com_ports)
         buttons_row.addWidget(refresh_btn)
         layout.addLayout(buttons_row)
 
         # ── Выбор проекта и платы ──────────────────────────────────────
-        project_group = QGroupBox("Select Project")
+        project_group = QGroupBox("Проект")
         project_vbox = QVBoxLayout()
         project_row = QHBoxLayout()
         project_row.addWidget(QLabel("Проект:"))
@@ -75,7 +80,7 @@ class VersionPanel(QWidget):
         project_group.setLayout(project_vbox)
         layout.addWidget(project_group)
 
-        board_group = QGroupBox("Select Board")
+        board_group = QGroupBox("Плата")
         board_vbox = QVBoxLayout()
         board_row = QHBoxLayout()
         board_row.addWidget(QLabel("Плата:"))
@@ -88,7 +93,7 @@ class VersionPanel(QWidget):
         layout.addWidget(board_group)
 
         # ── Текущая информация ─────────────────────────────────────────
-        current_group = QGroupBox("Current Firmware Info")
+        current_group = QGroupBox("Прошивка на плате")
         current_vbox = QVBoxLayout()
         self.version_label = QLabel("Версия прошивки: Неизвестно")
         self.date_label    = QLabel("Дата прошивки:   Неизвестно")
@@ -102,12 +107,13 @@ class VersionPanel(QWidget):
         layout.addWidget(current_group)
 
         self.update_info_btn = QPushButton("Обновить информацию")
+        glow(self.update_info_btn, THEME.g1, 22, 90)
         self.update_info_btn.setEnabled(False)
         self.update_info_btn.clicked.connect(self.update_firmware_info)
         layout.addWidget(self.update_info_btn)
 
         # ── Новая информация ───────────────────────────────────────────
-        new_group = QGroupBox("New Firmware Info")
+        new_group = QGroupBox("Записать в плату")
         new_vbox = QVBoxLayout()
 
         # Версия
@@ -139,6 +145,7 @@ class VersionPanel(QWidget):
 
         # Кнопка отправки
         self.set_info_btn = QPushButton("Установить информацию")
+        role(self.set_info_btn, "ghost")
         self.set_info_btn.setEnabled(False)
         self.set_info_btn.clicked.connect(self.set_firmware_info)
         layout.addWidget(self.set_info_btn)

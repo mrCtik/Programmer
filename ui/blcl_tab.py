@@ -9,6 +9,9 @@ import os
 import re
 import time
 import struct
+from ui.kit.glass import glow
+from ui.kit.widgets import Pill
+from ui.styles import THEME, group, role
 
 class BlclTab(QWidget):
     def __init__(self, parent=None):
@@ -49,7 +52,7 @@ class BlclTab(QWidget):
             self.add_file_row(left, label, default_addr, extension)
 
         self.status_label = QLabel("config_file.bin → 0x100000 (будет создан только для FPGA если нужно)")
-        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        role(self.status_label, "dim")
         left.addWidget(self.status_label)
 
         # Чекбокс для детального лога
@@ -58,6 +61,7 @@ class BlclTab(QWidget):
         left.addWidget(self.verbose_log_chk)
 
         self.flash_btn = QPushButton("Flash via COM Port")
+        glow(self.flash_btn, THEME.g1, 22, 90)
         self.flash_btn.clicked.connect(self.start_flash)
         left.addWidget(self.flash_btn)
 
@@ -65,6 +69,7 @@ class BlclTab(QWidget):
         left.addWidget(self.progress)
 
         self.save_log_btn = QPushButton("Save Log to TXT")
+        role(self.save_log_btn, "ghost")
         self.save_log_btn.clicked.connect(self.save_log)
         left.addWidget(self.save_log_btn)
 
@@ -76,7 +81,7 @@ class BlclTab(QWidget):
         right_widget.setLayout(right)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        right.addWidget(self.log)
+        right.addWidget(group("Журнал", self.log))
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)

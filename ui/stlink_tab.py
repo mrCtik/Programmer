@@ -7,6 +7,9 @@ import os
 import subprocess
 import json
 from utils.helpers import resource_path, find_stm32_cli  # Импорт resource_path и find_stm32_cli
+from ui.kit.glass import glow
+from ui.kit.widgets import Pill
+from ui.styles import THEME, group, role
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -33,43 +36,47 @@ class StlinkTab(QWidget):
         self.cli_path_label = QLabel("Путь к STM32_Programmer_CLI.exe:")
         self.cli_path = QLineEdit()
         browse_btn = QPushButton("Обзор...")
+        role(browse_btn, "ghost")
         browse_btn.clicked.connect(self.browse_cli)
         search_btn = QPushButton("Поиск")
+        role(search_btn, "ghost")
         search_btn.clicked.connect(self.search_cli)
         cli_path_layout.addWidget(self.cli_path_label)
         cli_path_layout.addWidget(self.cli_path)
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
-        layout.addLayout(cli_path_layout)
         # Статус ST-Link
         stlink_layout = QHBoxLayout()
-        self.stlink_status = QLabel("ST-Link: Не обнаружен")
-        self.stlink_status.setStyleSheet("color: red;")
+        self.stlink_status = Pill("Не обнаружен", "off")
         self.connect_btn = QPushButton("Проверить ST-Link")
+        role(self.connect_btn, "ghost")
         self.connect_btn.clicked.connect(self.check_stlink)
         stlink_layout.addWidget(QLabel("Программатор:"))
         stlink_layout.addWidget(self.stlink_status)
         stlink_layout.addWidget(self.connect_btn)
-        layout.addLayout(stlink_layout)
         # Выбор прошивки
         firmware_layout = QHBoxLayout()
         self.firmware_combo = QComboBox()
         self.firmware_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firmware')
         self.refresh_firmware_list()
         refresh_btn = QPushButton("Обновить")
+        role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_firmware_list)
         firmware_layout.addWidget(QLabel("Прошивка:"))
         firmware_layout.addWidget(self.firmware_combo)
         firmware_layout.addWidget(refresh_btn)
-        layout.addLayout(firmware_layout)
         self.stm32_flash_btn = QPushButton("Прошить STM32")
+        glow(self.stm32_flash_btn, THEME.g1, 22, 90)
         self.stm32_flash_btn.clicked.connect(self.start_stm32_flash)
         self.stm32_flash_btn.setEnabled(False)
-        layout.addWidget(self.stm32_flash_btn)
         # Лог
         self.stm32_log = QTextEdit()
         self.stm32_log.setReadOnly(True)
-        layout.addWidget(self.stm32_log)
+        layout.addWidget(group("Программатор", cli_path_layout,
+                               stlink_layout))
+        layout.addWidget(group("Прошивка", firmware_layout,
+                               self.stm32_flash_btn))
+        layout.addWidget(group("Журнал", self.stm32_log), 1)
         self.setLayout(layout)
 
     def browse_cli(self):
@@ -170,12 +177,10 @@ class StlinkTab(QWidget):
             result = subprocess.run([cli_path, "-c", "port=SWD"], capture_output=True, text=True, timeout=10)
             self.stm32_log.append(result.stdout + result.stderr)
             if "ST-LINK" in result.stdout:
-                self.stlink_status.setText("ST-Link: Подключен")
-                self.stlink_status.setStyleSheet("color: green;")
+                self.stlink_status.set_state("on", "Подключен")
                 self.stm32_flash_btn.setEnabled(True)
             else:
-                self.stlink_status.setText("ST-Link: Не найден")
-                self.stlink_status.setStyleSheet("color: red;")
+                self.stlink_status.set_state("err", "Не найден")
                 self.stm32_flash_btn.setEnabled(False)
         except FileNotFoundError:
             QMessageBox.warning(self, "Ошибка", "STM32_Programmer_CLI.exe не найден! Укажите полный путь.")

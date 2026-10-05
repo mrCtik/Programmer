@@ -8,6 +8,9 @@ import subprocess
 import tempfile
 import json
 from utils.helpers import resource_path, find_xilinx_cli  # Импорт resource_path и find_xilinx_cli
+from ui.kit.glass import glow
+from ui.kit.widgets import Pill
+from ui.styles import THEME, group, role
 
 class SearchThread(QThread):
     finished = pyqtSignal(str)
@@ -34,31 +37,30 @@ class XilinxTab(QWidget):
         self.cli_path_label = QLabel("Путь к CLI:")
         self.cli_path = QLineEdit()
         browse_btn = QPushButton("Обзор...")
+        role(browse_btn, "ghost")
         browse_btn.clicked.connect(self.browse_cli)
         search_btn = QPushButton("Поиск")
+        role(search_btn, "ghost")
         search_btn.clicked.connect(self.search_cli)
         cli_path_layout.addWidget(self.cli_path_label)
         cli_path_layout.addWidget(self.cli_path)
         cli_path_layout.addWidget(browse_btn)
         cli_path_layout.addWidget(search_btn)
-        layout.addLayout(cli_path_layout)
         # Тип Config Memory
         flash_part_layout = QHBoxLayout()
         self.flash_part_label = QLabel("Тип Config Memory:")
         self.flash_part = QLineEdit("mx25v1635f-spi-x1_x2_x4")
         flash_part_layout.addWidget(self.flash_part_label)
         flash_part_layout.addWidget(self.flash_part)
-        layout.addLayout(flash_part_layout)
         # Статус JTAG
         jtag_layout = QHBoxLayout()
-        self.jtag_status = QLabel("JTAG: Не обнаружен")
-        self.jtag_status.setStyleSheet("color: red;")
+        self.jtag_status = Pill("Не обнаружен", "off")
         self.connect_btn = QPushButton("Подключиться к JTAG")
+        role(self.connect_btn, "ghost")
         self.connect_btn.clicked.connect(self.check_jtag)
         jtag_layout.addWidget(QLabel("Программатор:"))
         jtag_layout.addWidget(self.jtag_status)
         jtag_layout.addWidget(self.connect_btn)
-        layout.addLayout(jtag_layout)
         # .mcs файл
         mcs_layout = QHBoxLayout()
         self.mcs_combo = QComboBox()
@@ -66,37 +68,40 @@ class XilinxTab(QWidget):
         os.makedirs(self.mcs_dir, exist_ok=True)
         self.refresh_mcs_list()
         refresh_btn = QPushButton("Обновить")
+        role(refresh_btn, "ghost")
         refresh_btn.clicked.connect(self.refresh_mcs_list)
         mcs_layout.addWidget(QLabel(".mcs файл:"))
         mcs_layout.addWidget(self.mcs_combo)
         mcs_layout.addWidget(refresh_btn)
-        layout.addLayout(mcs_layout)
         # Кнопки для прошивки и очистки
         buttons_layout = QHBoxLayout()
         self.flash_btn = QPushButton("Прошить Xilinx Config Memory")
+        glow(self.flash_btn, THEME.g1, 22, 90)
         self.flash_btn.clicked.connect(self.start_xilinx_flash)
         self.flash_btn.setEnabled(False)
         buttons_layout.addWidget(self.flash_btn)
         self.erase_btn = QPushButton("Очистить Xilinx Config Memory")
+        role(self.erase_btn, "danger")
         self.erase_btn.clicked.connect(self.start_xilinx_erase)
         self.erase_btn.setEnabled(False)
         buttons_layout.addWidget(self.erase_btn)
-        layout.addLayout(buttons_layout)
         # Прогресс бар
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
         # Таймер
         self.timer_label = QLabel("Время операции: 00:00")
         self.timer_label.setVisible(False)
-        layout.addWidget(self.timer_label)
         # Лог
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        layout.addWidget(self.log)
+        layout.addWidget(group("Программатор", cli_path_layout,
+                               flash_part_layout, jtag_layout))
+        layout.addWidget(group("Прошивка", mcs_layout, buttons_layout,
+                               self.progress_bar, self.timer_label))
+        layout.addWidget(group("Журнал", self.log), 1)
         self.setLayout(layout)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
@@ -259,19 +264,16 @@ exit
             filtered_output = self.filter_output(output)
             stdout_lower = filtered_output.lower()
             if "error" in stdout_lower or "no targets found" in stdout_lower or "no devices found" in stdout_lower or "unable to connect" in stdout_lower:
-                self.jtag_status.setText("JTAG: Не найден")
-                self.jtag_status.setStyleSheet("color: red;")
+                self.jtag_status.set_state("err", "Не найден")
                 self.flash_btn.setEnabled(False)
                 self.erase_btn.setEnabled(False)
                 self.log.append("Проверьте: 1) Подключен ли JTAG-кабель? 2) Установлены ли драйверы? 3) Запитана ли плата? 4) Нет ли ошибок в Device Manager? 5) Убейте все процессы hw_server.exe в Диспетчере задач и попробуйте снова.")
             elif ("targets found" in stdout_lower or "connect successful" in stdout_lower or "devices found" in stdout_lower) and ("xc" in stdout_lower or "jtag" in stdout_lower or "fpga" in stdout_lower or "digilent" in stdout_lower or "xilinx_tcf" in stdout_lower or "xc7s25" in stdout_lower):
-                self.jtag_status.setText("JTAG: Подключен")
-                self.jtag_status.setStyleSheet("color: green;")
+                self.jtag_status.set_state("on", "Подключен")
                 self.flash_btn.setEnabled(True)
                 self.erase_btn.setEnabled(True)
             else:
-                self.jtag_status.setText("JTAG: Не найден")
-                self.jtag_status.setStyleSheet("color: red;")
+                self.jtag_status.set_state("err", "Не найден")
                 self.flash_btn.setEnabled(False)
                 self.erase_btn.setEnabled(False)
                 self.log.append("Неизвестный статус. Проверьте вывод.")
