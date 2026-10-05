@@ -22,8 +22,45 @@ def markdown_to_html(md):
     lines = md.split('\n')
     html_lines = []
     in_list = False
+    in_table = False
+    in_code = False
+
+    def close_table():
+        nonlocal in_table
+        if in_table:
+            html_lines.append('</table>')
+            in_table = False
+
     for line in lines:
         line = line.strip()
+
+        # Блок кода ```
+        if line.startswith('```'):
+            html_lines.append('</pre>' if in_code else
+                              '<pre style="background:#0a0c11">')
+            in_code = not in_code
+            continue
+        if in_code:
+            html_lines.append(line + '<br>')
+            continue
+
+        # Таблица: строка вида | a | b |
+        if line.startswith('|') and line.endswith('|'):
+            cells = [c.strip() for c in line.strip('|').split('|')]
+            if all(set(c) <= set('-: ') for c in cells):
+                continue          # разделитель заголовка
+            if not in_table:
+                html_lines.append(
+                    '<table border="1" cellspacing="0" cellpadding="4">')
+                in_table = True
+                tag = 'th'
+            else:
+                tag = 'td'
+            html_lines.append('<tr>' + ''.join(
+                f'<{tag}>{c}</{tag}>' for c in cells) + '</tr>')
+            continue
+        close_table()
+
         if not line:
             if in_list:
                 html_lines.append('</ul>')
@@ -57,4 +94,7 @@ def markdown_to_html(md):
             html_lines.append('<p>' + line + '</p>')
     if in_list:
         html_lines.append('</ul>')
+    close_table()
+    if in_code:
+        html_lines.append('</pre>')
     return ''.join(html_lines)

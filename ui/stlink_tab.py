@@ -1,27 +1,16 @@
 # ui/stlink_tab.py
 # Вкладка для прошивки STM32 через ST-Link
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog
-from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import QApplication
 from core.stlink_flash import STM32FlashThread
 import os
-import subprocess
-import json
-from utils.helpers import resource_path, find_stm32_cli, data_path
+from utils import proc, tools
+from utils.helpers import find_stm32_cli, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
-
-class SearchThread(QThread):
-    finished = pyqtSignal(str)
-    def __init__(self):
-        super().__init__()
-        self._stop_requested = False
-    def requestInterruption(self):
-        self._stop_requested = True
-        super().requestInterruption()
-    def run(self):
-        path = find_stm32_cli()
-        self.finished.emit(path)
 
 class StlinkTab(QWidget):
     def __init__(self, parent=None):
@@ -92,8 +81,8 @@ class StlinkTab(QWidget):
 
     def search_cli(self):
         self.cli_path.setText("")
-        self.search_thread = SearchThread()
-        self.search_thread.finished.connect(self.on_search_finished)
+        self.search_thread = tools.SearchThread(find_stm32_cli, self)
+        self.search_thread.found.connect(self.on_search_finished)
         self.progress_dialog = QProgressDialog("Поиск STM32_Programmer_CLI.exe... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -119,42 +108,29 @@ class StlinkTab(QWidget):
             self.progress_dialog.canceled.connect(self.progress_dialog.close)
 
     def on_search_canceled(self):
-        if self.search_thread.isRunning():
+        if self.search_thread and self.search_thread.isRunning():
             self.search_thread.requestInterruption()
-            self.search_thread.wait()
 
     def validate_stm32_cli(self, path):
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         try:
-            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=5)
-            return "STM32CubeProgrammer" in result.stdout
+            result = proc.run([path, "--help"], timeout=5)
+            return "STM32CubeProgrammer" in (result.stdout or '')
         except Exception:
             return False
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def save_cli_path(self, path):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        os.makedirs(resources_dir, exist_ok=True)
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-        else:
-            settings = {}
-        settings['stm32_cli_path'] = path
-        with open(settings_path, 'w') as f:
-            json.dump(settings, f)
+        tools.save_setting('stm32_cli_path', path)
 
     def load_cli_path(self):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-                path = settings.get('stm32_cli_path', '')
-                if path and self.validate_stm32_cli(path):
-                    self.cli_path.setText(path)
-                    self.check_stlink() # Автоматически проверяем, если путь загружен
-                else:
-                    self.cli_path.setText('')
+        path = tools.get_setting('stm32_cli_path')
+        if path and self.validate_stm32_cli(path):
+            self.cli_path.setText(path)
+            self.check_stlink()   # путь знаем — сразу смотрим, на месте ли ST-Link
+        else:
+            self.cli_path.setText('')
 
     def refresh_firmware_list(self):
         """Обновляет список прошивок из папки firmware"""
@@ -165,7 +141,8 @@ class StlinkTab(QWidget):
                     self.firmware_combo.addItem(f)
 
     def check_stlink(self):
-        """Проверяет подключение ST-Link"""
+        """Проверяет подключение ST-Link. В фоне: раньше окно замирало
+        на всё время опроса."""
         cli_path = self.cli_path.text()
         if not cli_path:
             QMessageBox.warning(self, "Ошибка", "Укажите путь к STM32_Programmer_CLI.exe!")
@@ -173,20 +150,28 @@ class StlinkTab(QWidget):
         if not self.validate_stm32_cli(cli_path):
             QMessageBox.warning(self, "Ошибка", "Это не STM32CubeProgrammer CLI! Укажите правильный путь.")
             return
-        try:
-            result = subprocess.run([cli_path, "-c", "port=SWD"], capture_output=True, text=True, timeout=10)
-            self.stm32_log.append(result.stdout + result.stderr)
-            if "ST-LINK" in result.stdout:
-                self.stlink_status.set_state("on", "Подключен")
-                self.stm32_flash_btn.setEnabled(True)
-            else:
-                self.stlink_status.set_state("err", "Не найден")
-                self.stm32_flash_btn.setEnabled(False)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Ошибка", "STM32_Programmer_CLI.exe не найден! Укажите полный путь.")
-            self.stm32_log.append("Ошибка: Файл не найден. Укажите полный путь к STM32_Programmer_CLI.exe.")
-        except Exception as e:
-            self.stm32_log.append(f"Ошибка: {e}")
+        self.connect_btn.setEnabled(False)
+        self.stlink_status.set_state("move", "Проверка…")
+        self.check_thread = tools.CommandThread(
+            [cli_path, "-c", "port=SWD"], timeout=10, parent=self)
+        self.check_thread.done.connect(lambda code, out: self._on_stlink_checked(out))
+        self.check_thread.failed.connect(self._on_stlink_check_failed)
+        self.check_thread.start()
+
+    def _on_stlink_checked(self, out):
+        self.connect_btn.setEnabled(True)
+        self.stm32_log.append(out)
+        found = "ST-LINK" in out
+        self.stlink_status.set_state("on" if found else "err",
+                                     "Подключен" if found else "Не найден")
+        self.stm32_flash_btn.setEnabled(found)
+
+    def _on_stlink_check_failed(self, msg):
+        self.connect_btn.setEnabled(True)
+        self.stlink_status.set_state("err", "Не найден")
+        self.stm32_flash_btn.setEnabled(False)
+        self.stm32_log.append(f"Ошибка: {msg}")
+        QMessageBox.warning(self, "Ошибка", msg)
 
     def start_stm32_flash(self):
         """Запускает прошивку STM32"""
@@ -199,5 +184,5 @@ class StlinkTab(QWidget):
         self.stm32_flash_btn.setEnabled(False)
         self.stm32_thread = STM32FlashThread(bin_path, cli_path)
         self.stm32_thread.log.connect(self.stm32_log.append)
-        self.stm32_thread.finished.connect(lambda s: self.stm32_flash_btn.setEnabled(True))
+        self.stm32_thread.done.connect(lambda s: self.stm32_flash_btn.setEnabled(True))
         self.stm32_thread.start()

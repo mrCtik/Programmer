@@ -1,28 +1,16 @@
 # ui/jlink_tab.py
 # Вкладка для прошивки hex и bin файлов через Segger J-Link
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressDialog
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import QApplication
 from core.jlink_flash import JLinkFlashThread, JLinkEraseThread
 import os
-import subprocess
-import json
-import tempfile
-from utils.helpers import resource_path, find_jlink_exe, data_path
+from utils import proc, tools
+from utils.helpers import find_jlink_exe, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
-
-class SearchThread(QThread):
-    finished = pyqtSignal(str)
-    def __init__(self):
-        super().__init__()
-        self._stop_requested = False
-    def requestInterruption(self):
-        self._stop_requested = True
-        super().requestInterruption()
-    def run(self):
-        path = find_jlink_exe()
-        self.finished.emit(path)
 
 class JlinkTab(QWidget):
     def __init__(self, parent=None):
@@ -120,8 +108,8 @@ class JlinkTab(QWidget):
 
     def search_cli(self):
         self.cli_path.setText("")
-        self.search_thread = SearchThread()
-        self.search_thread.finished.connect(self.on_search_finished)
+        self.search_thread = tools.SearchThread(find_jlink_exe, self)
+        self.search_thread.found.connect(self.on_search_finished)
         self.progress_dialog = QProgressDialog("Поиск JLink.exe... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -147,67 +135,46 @@ class JlinkTab(QWidget):
             self.progress_dialog.canceled.connect(self.progress_dialog.close)
 
     def on_search_canceled(self):
-        if self.search_thread.isRunning():
+        # просто просим остановиться: обход проверяет флаг на каждой папке
+        if self.search_thread and self.search_thread.isRunning():
             self.search_thread.requestInterruption()
-            self.search_thread.wait()
 
     def validate_jlink_exe(self, path):
+        """Быстрая проверка «тот ли это файл». Ответ приходит сразу,
+        но курсор всё равно меняем — вдруг диск спит."""
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         try:
-            result = subprocess.run([path, "-?"], capture_output=True, text=True, timeout=5)
-            return "SEGGER J-Link Commander" in result.stdout or "SEGGER J-Link" in result.stdout
+            result = proc.run([path, "-?"], timeout=5)
+            out = result.stdout or ''
+            return "SEGGER J-Link Commander" in out or "SEGGER J-Link" in out
         except Exception:
             return False
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def save_cli_path(self, path):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        os.makedirs(resources_dir, exist_ok=True)
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-        else:
-            settings = {}
-        settings['jlink_cli_path'] = path
-        with open(settings_path, 'w') as f:
-            json.dump(settings, f)
+        tools.save_setting('jlink_cli_path', path)
 
     def load_cli_path(self):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-                path = settings.get('jlink_cli_path', '')
-                if path and self.validate_jlink_exe(path):
-                    self.cli_path.setText(path)
-                else:
-                    self.cli_path.setText('')
+        path = tools.get_setting('jlink_cli_path')
+        if path and self.validate_jlink_exe(path):
+            self.cli_path.setText(path)
+        else:
+            self.cli_path.setText('')
 
     def save_mcu_model(self, model):
         if not model:
             return
-        resources_dir = data_path('resources')
-        mcu_path = os.path.join(resources_dir, 'mcu.json')
-        os.makedirs(resources_dir, exist_ok=True)
-        if os.path.exists(mcu_path):
-            with open(mcu_path, 'r') as f:
-                models = json.load(f)
-        else:
-            models = []
+        models = tools.load_list('mcu.json')
         if model not in models:
             models.append(model)
-        with open(mcu_path, 'w') as f:
-            json.dump(models, f)
+            tools.save_list('mcu.json', models)
 
     def load_mcu_models(self):
-        resources_dir = data_path('resources')
-        mcu_path = os.path.join(resources_dir, 'mcu.json')
-        if os.path.exists(mcu_path):
-            with open(mcu_path, 'r') as f:
-                models = json.load(f)
-                if models:
-                    self.device_combo.addItems(models)
-                    self.device_combo.setCurrentText(models[-1])
+        models = tools.load_list('mcu.json')
+        if models:
+            self.device_combo.addItems(models)
+            self.device_combo.setCurrentText(models[-1])
 
     def refresh_file_list(self):
         self.file_combo.clear()
@@ -224,28 +191,40 @@ class JlinkTab(QWidget):
         if not self.validate_jlink_exe(cli_path):
             QMessageBox.warning(self, "Ошибка", "Это не Segger J-Link Commander! Укажите правильный путь.")
             return
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.jlink', mode='w') as script_file:
-                script_file.write("ShowEmuList USB\nexit\n")
-                script_path = script_file.name
-            result = subprocess.run([cli_path, "-CommanderScript", script_path], capture_output=True, text=True, timeout=10)
-            os.unlink(script_path)
-            self.log.append(result.stdout + result.stderr)
-            if "J-Link" in result.stdout:
-                self.jlink_status.set_state("on", "Подключен")
-                self.target_btn.setEnabled(True)
-                self.flash_btn.setEnabled(True)
-                self.erase_btn.setEnabled(True)
-            else:
-                self.jlink_status.set_state("err", "Не найден")
-                self.target_btn.setEnabled(False)
-                self.flash_btn.setEnabled(False)
-                self.erase_btn.setEnabled(False)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Ошибка", "JLink.exe не найден! Укажите полный путь.")
-            self.log.append("Ошибка: Файл не найден. Укажите полный путь к JLink.exe.")
-        except Exception as e:
-            self.log.append(f"Ошибка: {e}")
+        script = tools.temp_script("ShowEmuList USB\nexit\n", '.jlink')
+        self.connect_btn.setEnabled(False)
+        self.jlink_status.set_state("move", "Проверка…")
+        self.check_thread = tools.CommandThread(
+            [cli_path, "-CommanderScript", script], timeout=10, parent=self)
+        self.check_thread.done.connect(
+            lambda code, out, s=script: self._on_jlink_checked(out, s))
+        self.check_thread.failed.connect(
+            lambda msg, s=script: self._on_jlink_check_failed(msg, s))
+        self.check_thread.start()
+
+    def _set_jlink_found(self, found):
+        self.target_btn.setEnabled(found)
+        self.flash_btn.setEnabled(found)
+        self.erase_btn.setEnabled(found)
+
+    def _on_jlink_checked(self, out, script):
+        tools.drop_temp(script)
+        self.connect_btn.setEnabled(True)
+        self.log.append(out)
+        if "J-Link" in out:
+            self.jlink_status.set_state("on", "Подключен")
+            self._set_jlink_found(True)
+        else:
+            self.jlink_status.set_state("err", "Не найден")
+            self._set_jlink_found(False)
+
+    def _on_jlink_check_failed(self, msg, script):
+        tools.drop_temp(script)
+        self.connect_btn.setEnabled(True)
+        self.jlink_status.set_state("err", "Не найден")
+        self._set_jlink_found(False)
+        self.log.append(f"Ошибка: {msg}")
+        QMessageBox.warning(self, "Ошибка", msg)
 
     def toggle_target(self):
         cli_path = self.cli_path.text()
@@ -253,39 +232,48 @@ class JlinkTab(QWidget):
         if not device:
             QMessageBox.warning(self, "Ошибка", "Укажите контроллер!")
             return
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.jlink', mode='w') as script_file:
-                if self.is_target_connected:
-                    # Полный скрипт для отключения с инициализацией
-                    script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\ng\nexit\n"
-                    new_button_text = "Подключиться"
-                    new_status_text = "Не подключен"
-                    new_state = "off"
-                    self.is_target_connected = False
-                else:
-                    # Скрипт для подключения
-                    script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\nregs\nexit\n"
-                    new_button_text = "Отключиться"
-                    new_status_text = "Подключен"
-                    new_state = "on"
-                    self.is_target_connected = True
-                script_file.write(script_content)
-                script_path = script_file.name
-            # Увеличили таймаут до 20 секунд для стабильности
-            result = subprocess.run([cli_path, "-CommanderScript", script_path], capture_output=True, text=True, timeout=20)
-            os.unlink(script_path)
-            self.log.append(result.stdout + result.stderr)
-            if result.returncode != 0 or "ERROR" in result.stderr.upper():
-                QMessageBox.warning(self, "Ошибка", "Ошибка при подключении/отключении!")
-                return
-            self.target_btn.setText(new_button_text)
-            self.target_status.set_state(new_state, new_status_text)
-        except subprocess.TimeoutExpired:
-            self.log.append("Ошибка: Таймаут при выполнении команды.")
-            QMessageBox.warning(self, "Ошибка", "Таймаут при подключении/отключении! Проверьте устройство.")
-        except Exception as e:
-            self.log.append(f"Ошибка: {e}")
-            QMessageBox.warning(self, "Ошибка", f"Исключение: {e}")
+        if self.is_target_connected:
+            script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\ng\nexit\n"
+        else:
+            script_content = f"device {device}\nsi SWD\nspeed 4000\nr\nh\nregs\nexit\n"
+        script = tools.temp_script(script_content, '.jlink')
+        self.target_btn.setEnabled(False)
+        self.target_status.set_state("move", "Ждём…")
+        self.target_thread = tools.CommandThread(
+            [cli_path, "-CommanderScript", script], timeout=20, parent=self)
+        self.target_thread.done.connect(
+            lambda code, out, s=script: self._on_target_done(code, out, s))
+        self.target_thread.failed.connect(
+            lambda msg, s=script: self._on_target_failed(msg, s))
+        self.target_thread.start()
+
+    def _restore_target_state(self):
+        if self.is_target_connected:
+            self.target_btn.setText("Отключиться")
+            self.target_status.set_state("on", "Подключен")
+        else:
+            self.target_btn.setText("Подключиться")
+            self.target_status.set_state("off", "Не подключен")
+
+    def _on_target_done(self, code, out, script):
+        tools.drop_temp(script)
+        self.target_btn.setEnabled(True)
+        self.log.append(out)
+        if code != 0 or "ERROR" in out.upper():
+            # состояние переключаем только по факту успеха, иначе кнопка
+            # и плашка начинали врать после первой же ошибки
+            self._restore_target_state()
+            QMessageBox.warning(self, "Ошибка", "Ошибка при подключении/отключении!")
+            return
+        self.is_target_connected = not self.is_target_connected
+        self._restore_target_state()
+
+    def _on_target_failed(self, msg, script):
+        tools.drop_temp(script)
+        self.target_btn.setEnabled(True)
+        self._restore_target_state()
+        self.log.append(f"Ошибка: {msg}")
+        QMessageBox.warning(self, "Ошибка", msg)
 
     def start_jlink_flash(self):
         if self.file_combo.count() == 0:
@@ -301,7 +289,7 @@ class JlinkTab(QWidget):
         self.flash_btn.setEnabled(False)
         self.thread = JLinkFlashThread(file_path, cli_path, device)
         self.thread.log.connect(self.log.append)
-        self.thread.finished.connect(self.on_flash_finished)
+        self.thread.done.connect(self.on_flash_finished)
         self.thread.start()
 
     def on_flash_finished(self, success):
@@ -318,11 +306,19 @@ class JlinkTab(QWidget):
         if not device:
             QMessageBox.warning(self, "Ошибка", "Укажите контроллер!")
             return
+        if QMessageBox.question(
+                self, "Очистить память",
+                f"Стереть всю флеш-память {device}?\n\n"
+                "Прошивка на плате будет потеряна, восстановить её можно\n"
+                "только повторной записью.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
         self.log.clear()
         self.erase_btn.setEnabled(False)
         self.thread = JLinkEraseThread(cli_path, device)
         self.thread.log.connect(self.log.append)
-        self.thread.finished.connect(self.on_erase_finished)
+        self.thread.done.connect(self.on_erase_finished)
         self.thread.start()
 
     def on_erase_finished(self, success):

@@ -367,10 +367,31 @@ class BlclTab(QWidget):
         self.flash_thread = FlashThread(ser, files_info, verbose, try_cmd, clear_buffer=(try_cmd != 0x7E))
         self.flash_thread.log.connect(self.log.append)
         self.flash_thread.progress.connect(self.progress.setValue)
-        self.flash_thread.finished.connect(self.on_flash_finished)
+        self.flash_thread.done.connect(self.on_flash_finished)
+        self._lock_port(True)
         self.flash_thread.start()
 
+    def _lock_port(self, busy):
+        """Порт один на всю программу: пока в него пишет поток прошивки,
+        панель версии не должна из него читать — иначе ответы платы
+        достанутся не тому, кто их ждёт."""
+        self.flash_btn.setEnabled(not busy)
+        panel = getattr(self.main_window, 'version_panel', None)
+        if not panel:
+            return
+        buttons = (panel.connect_btn, panel.update_info_btn,
+                   panel.set_info_btn)
+        if busy:
+            self._saved_states = [b.isEnabled() for b in buttons]
+            for b in buttons:
+                b.setEnabled(False)
+        else:
+            saved = getattr(self, '_saved_states', [True] * len(buttons))
+            for b, state in zip(buttons, saved):
+                b.setEnabled(state)
+
     def on_flash_finished(self, success):
+        self._lock_port(False)
         if success:
             self.log.append("Загрузка завершена успешно!")
         else:

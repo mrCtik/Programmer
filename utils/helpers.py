@@ -1,7 +1,6 @@
 # utils/helpers.py
 import os
 import sys
-import glob
 
 def make_crc_table():
     table = []
@@ -34,35 +33,40 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-def find_stm32_cli(drives=['C:', 'D:', 'E:']):
-    exe_names = ['STM32_Programmer_CLI.exe']
-    patterns = [f"{drive}\\Program Files\\STMicroelectronics\\**\\{exe}" for drive in drives for exe in exe_names]
-    for pattern in patterns:
-        print(f"Searching with pattern: {pattern}")
-        paths = glob.glob(pattern, recursive=True)
-        if paths:
-            return paths[0]
+def _find_exe(roots, names, should_stop=None):
+    """Первый подошедший файл из names в дереве roots.
+
+    Обход свой, а не glob('**'): glob нельзя прервать, и кнопка «Отмена»
+    в диалоге поиска закрывала окно, пока поток ещё минутами молотил
+    диск. Здесь should_stop спрашивается на каждой папке.
+    """
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            if should_stop and should_stop():
+                return None
+            for name in names:
+                if name in filenames:
+                    return os.path.join(dirpath, name)
     return None
 
-def find_xilinx_cli(drives=['C:', 'D:', 'E:']):
-    exe_names = ['vivado.bat', 'vivado_lab.bat', 'xsdb.bat']
-    patterns = [f"{drive}\\Xilinx\\**\\{exe}" for drive in drives for exe in exe_names]
-    for pattern in patterns:
-        print(f"Searching with pattern: {pattern}")
-        paths = glob.glob(pattern, recursive=True)
-        if paths:
-            return paths[0]
-    return None
 
-def find_jlink_exe(drives=['C:', 'D:', 'E:']):
-    exe_names = ['JLink.exe', 'JLinkExe.exe']
-    patterns = [f"{drive}\\Program Files\\SEGGER\\**\\{exe}" for drive in drives for exe in exe_names]
-    for pattern in patterns:
-        print(f"Searching with pattern: {pattern}")
-        paths = glob.glob(pattern, recursive=True)
-        if paths:
-            return paths[0]
-    return None
+def find_stm32_cli(drives=('C:', 'D:', 'E:'), should_stop=None):
+    roots = [f"{d}\\Program Files\\STMicroelectronics" for d in drives]
+    return _find_exe(roots, ['STM32_Programmer_CLI.exe'], should_stop)
+
+
+def find_xilinx_cli(drives=('C:', 'D:', 'E:'), should_stop=None):
+    roots = [f"{d}\\Xilinx" for d in drives]
+    return _find_exe(roots, ['vivado.bat', 'vivado_lab.bat', 'xsdb.bat'],
+                     should_stop)
+
+
+def find_jlink_exe(drives=('C:', 'D:', 'E:'), should_stop=None):
+    roots = [f"{d}\\Program Files\\SEGGER" for d in drives]
+    return _find_exe(roots, ['JLink.exe', 'JLinkExe.exe'], should_stop)
+
 
 def app_dir():
     """Папка, рядом с которой лежат рабочие данные.

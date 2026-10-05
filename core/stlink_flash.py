@@ -1,11 +1,15 @@
 # core/stlink_flash.py
 from PyQt5.QtCore import QThread, pyqtSignal
-import subprocess
 import os
+import subprocess
+
+from utils import proc
 
 class STM32FlashThread(QThread):
     log = pyqtSignal(str)
-    finished = pyqtSignal(bool)
+    # done, а не finished: QThread уже имеет свой сигнал finished(),
+    # и объявление с тем же именем перекрывало его для всего класса
+    done = pyqtSignal(bool)
 
     def __init__(self, bin_path, cli_path):
         super().__init__()
@@ -16,11 +20,11 @@ class STM32FlashThread(QThread):
         try:
             # Проверка ST-Link
             self.log.emit("Проверка ST-Link...")
-            result = subprocess.run([self.cli_path, "-c", "port=SWD"], capture_output=True, text=True, timeout=10)
+            result = proc.run([self.cli_path, "-c", "port=SWD"], timeout=10)
             self.log.emit(result.stdout + result.stderr)
             if "ST-LINK" not in result.stdout:
                 self.log.emit("ST-Link не найден!")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
             self.log.emit("ST-Link найден. Прошивка...")
@@ -35,23 +39,23 @@ class STM32FlashThread(QThread):
                 # Для .bin указываем адрес
                 cmd = [self.cli_path, "-c", "port=SWD", "freq=4000", "-w", self.bin_path, "0x8000000", "-v", "-rst"]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = proc.run(cmd)
             self.log.emit(result.stdout + result.stderr)
 
             # Проверка успеха (расширенная)
             success_keywords = ["Verification OK", "Download verified successfully", "Programming Complete", "File download complete"]
             if any(keyword in result.stdout for keyword in success_keywords):
                 self.log.emit("Прошивка STM32 завершена успешно!")
-                self.finished.emit(True)
+                self.done.emit(True)
             else:
                 self.log.emit("Ошибка прошивки!")
-                self.finished.emit(False)
+                self.done.emit(False)
         except FileNotFoundError:
             self.log.emit("Ошибка: STM32_Programmer_CLI.exe не найден! Проверьте путь.")
-            self.finished.emit(False)
+            self.done.emit(False)
         except subprocess.TimeoutExpired:
             self.log.emit("Ошибка: Таймаут выполнения команды!")
-            self.finished.emit(False)
+            self.done.emit(False)
         except Exception as e:
             self.log.emit(f"Ошибка: {e}")
-            self.finished.emit(False)
+            self.done.emit(False)

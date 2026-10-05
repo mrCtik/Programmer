@@ -6,14 +6,15 @@ from utils.helpers import create_blcl_packet
 class FlashThread(QThread):
     log = pyqtSignal(str)
     progress = pyqtSignal(int)
-    finished = pyqtSignal(bool)
+    # done, а не finished: QThread уже имеет свой сигнал finished(),
+    # и объявление с тем же именем перекрывало его для всего класса
+    done = pyqtSignal(bool)
 
     def __init__(self, ser, files_info, verbose=False, try_cmd=0x7F, clear_buffer=True):
         super().__init__()
         self.ser = ser
         self.files_info = files_info
         self.chunk_size = 1024
-        self.timeout = 1000.0
         self.verbose = verbose  # Флаг детального лога
         self.try_cmd = try_cmd
         self.clear_buffer = clear_buffer
@@ -78,7 +79,7 @@ class FlashThread(QThread):
             while True:
                 if time.time() - start_time > 30:
                     self.log.emit("Таймаут: запрос TryConnection не получен за 30 секунд")
-                    self.finished.emit(False)
+                    self.done.emit(False)
                     return
 
                 byte = self.ser.read(1)
@@ -128,13 +129,17 @@ class FlashThread(QThread):
                     # первые 8 байт.
                     self.drain_and_dump(2.0, "WriteAddress", prefix=response)
                     self.log.emit("Ошибка: Ответ WriteAddress!")
-                    self.finished.emit(False)
+                    self.done.emit(False)
                     return
 
                 self.log.emit("Успех: Получен ответ WriteAddress")
 
                 # WriteData chunks
                 for j in range(0, size, self.chunk_size):
+                    if self.isInterruptionRequested():
+                        self.log.emit("Прошивка прервана по запросу")
+                        self.done.emit(False)
+                        return
                     chunk = bin_data[j:j+self.chunk_size]
                     write_data = create_blcl_packet(0x03, chunk)
                     self.ser.write(write_data)
@@ -145,7 +150,7 @@ class FlashThread(QThread):
                         self.log.emit("Ответ: " + ' '.join(f'{b:02X}' for b in response))
                     if len(response) != 8 or response[0] != 0xAA or response[2] & 0x80:
                         self.log.emit("Ошибка: Ответ WriteData!")
-                        self.finished.emit(False)
+                        self.done.emit(False)
                         return
 
                     self.log.emit("Успех: Получен ответ WriteData")
@@ -163,10 +168,10 @@ class FlashThread(QThread):
                 self.log.emit("Получен Start User App")
             else:
                 self.log.emit("Ошибка: Не получен Start User App")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
-            self.finished.emit(True)
+            self.done.emit(True)
         except Exception as e:
             self.log.emit(f"ОШИБКА: {e}")
-            self.finished.emit(False)
+            self.done.emit(False)

@@ -3,12 +3,16 @@
 
 from PyQt5.QtCore import QThread, pyqtSignal
 import subprocess
+
+from utils import proc, tools
 import os
 import tempfile
 
 class XilinxFlashThread(QThread):
     log = pyqtSignal(str)
-    finished = pyqtSignal(bool)
+    # done, а не finished: QThread уже имеет свой сигнал finished(),
+    # и объявление с тем же именем перекрывало его для всего класса
+    done = pyqtSignal(bool)
     progress = pyqtSignal(int)
 
     def __init__(self, mcs_path, cli_path, flash_part, erase_only=False):
@@ -23,7 +27,7 @@ class XilinxFlashThread(QThread):
         try:
             if not os.path.exists(self.cli_path):
                 self.log.emit(f"CLI файл не найден: {self.cli_path}")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
             self.log.emit("Проверка JTAG...")
@@ -65,13 +69,13 @@ exit
 
             cmd = self.get_cmd(check_tcl_path)
             self.log.emit(f"Выполнение команды: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = proc.run(cmd, timeout=60)
             os.unlink(check_tcl_path)
             self.log.emit(self.filter_output(result.stdout + result.stderr))
 
             if result.returncode != 0:
                 self.log.emit(f"Ошибка выполнения CLI: код возврата {result.returncode}")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
             output = result.stdout + result.stderr
@@ -80,14 +84,14 @@ exit
 
             if "error" in stdout_lower or "no targets found" in stdout_lower or "no devices found" in stdout_lower or "unable to connect" in stdout_lower:
                 self.log.emit("JTAG или устройство не найдено! Проверьте подключение, драйверы, питание. Убедитесь, что нет конфликтующих процессов hw_server (убейте в Диспетчере задач).")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
             if ("targets found" in stdout_lower or "connect successful" in stdout_lower or "devices found" in stdout_lower) and ("xc" in stdout_lower or "jtag" in stdout_lower or "fpga" in stdout_lower or "digilent" in stdout_lower or "xilinx_tcf" in stdout_lower or "xc7s25" in stdout_lower):
                 self.log.emit("JTAG найден.")
                 self.progress.emit(10)
             else:
                 self.log.emit("Не удалось подтвердить наличие JTAG. Проверьте полный вывод команды.")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
             if self.erase_only:
@@ -183,7 +187,7 @@ exit
             self.log.emit(f"Выполнение команды: {' '.join(cmd)}")
 
             # Используем Popen для чтения вывода в реальном времени
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            process = proc.popen(cmd)
             for line in process.stdout:
                 self.log.emit(line.strip())
                 self.update_progress(line.lower())
@@ -192,7 +196,7 @@ exit
 
             if process.returncode != 0:
                 self.log.emit(f"Ошибка выполнения CLI: код возврата {process.returncode}")
-                self.finished.emit(False)
+                self.done.emit(False)
                 return
 
             if self.erase_only:
@@ -200,13 +204,13 @@ exit
             else:
                 self.log.emit("Прошивка завершена успешно!")
             self.progress.emit(100)
-            self.finished.emit(True)
+            self.done.emit(True)
         except subprocess.TimeoutExpired:
             self.log.emit("Таймаут выполнения команды!")
-            self.finished.emit(False)
+            self.done.emit(False)
         except Exception as e:
             self.log.emit(f"ОШИБКА: {str(e)}")
-            self.finished.emit(False)
+            self.done.emit(False)
 
     def update_progress(self, line):
         if "vivado v" in line:

@@ -10,9 +10,13 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit,
     QMessageBox, QGroupBox, QSplitter, QMenuBar, QDialog, QTextBrowser
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction, QActionGroup
+from core.blcl_protocol import FlashThread
+from core.jlink_flash import JLinkFlashThread, JLinkEraseThread
+from core.stlink_flash import STM32FlashThread
+from core.xilinx_flash import XilinxFlashThread
 from ui.blcl_tab import BlclTab
 from ui.stlink_tab import StlinkTab
 from ui.xilinx_tab import XilinxTab
@@ -128,6 +132,65 @@ class MainWindow(QMainWindow):
         if save:
             save_accent(THEME.accent)
         self.update()
+
+    def closeEvent(self, event):
+        """Закрытие посреди прошивки раньше уничтожало работающий QThread
+        («QThread: Destroyed while thread is still running») и бросало
+        плату с недописанным образом. Теперь спрашиваем и ждём."""
+        # спрашиваем только про работу с платой; проверки программатора
+        # и поиск утилит останавливаем молча
+        running = [t for t in self._worker_threads() if t.isRunning()]
+        busy = [t for t in running if isinstance(t, self.FLASH_THREADS)]
+        for t in running:
+            if t not in busy:
+                t.requestInterruption()
+        if busy:
+            answer = QMessageBox.question(
+                self, APP_TITLE,
+                "Идёт работа с платой (прошивка или стирание).\n\n"
+                "Прервать её и выйти? Плата может остаться с неполной\n"
+                "прошивкой.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                event.ignore()
+                return
+            for t in busy:
+                t.requestInterruption()
+                if not t.wait(5000):
+                    t.terminate()      # последнее средство, но лучше, чем
+                    t.wait(1000)       # уничтожение работающего QThread
+        self._close_serial()
+        event.accept()
+
+    FLASH_THREADS = (FlashThread, JLinkFlashThread, JLinkEraseThread,
+                     STM32FlashThread, XilinxFlashThread)
+
+    # потоки вкладок живут в своих атрибутах: с parent=self их видно
+    # через findChildren, созданные без родителя — только по именам
+    THREAD_ATTRS = ('thread', 'flash_thread', 'stm32_thread',
+                    'check_thread', 'target_thread', 'search_thread')
+
+    def _worker_threads(self):
+        found = list(self.findChildren(QThread))
+        tabs = self.findChildren((BlclTab, StlinkTab, XilinxTab, JlinkTab,
+                                  VersionPanel))
+        for tab in tabs:
+            for name in self.THREAD_ATTRS:
+                t = getattr(tab, name, None)
+                if isinstance(t, QThread) and t not in found:
+                    found.append(t)
+        return found
+
+    def _close_serial(self):
+        panel = getattr(self, 'version_panel', None)
+        port = getattr(panel, 'serial_port', None)
+        if port:
+            try:
+                port.close()
+            except Exception:
+                pass
+            panel.serial_port = None
+            panel.is_com_connected = False
 
     def show_about_dialog(self):
         dialog = QDialog(self)

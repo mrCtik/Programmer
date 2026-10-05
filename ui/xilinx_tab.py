@@ -1,28 +1,14 @@
 # ui/xilinx_tab.py
 # Вкладка для прошивки Xilinx Configuration Memory Device через JTAG (.mcs)
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox, QTextEdit, QFileDialog, QMessageBox, QProgressBar, QProgressDialog
-from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QTimer, Qt
 from core.xilinx_flash import XilinxFlashThread
 import os
-import subprocess
-import tempfile
-import json
-from utils.helpers import resource_path, find_xilinx_cli, data_path
+from utils import tools
+from utils.helpers import find_xilinx_cli, data_path
 from ui.kit.glass import glow
 from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
-
-class SearchThread(QThread):
-    finished = pyqtSignal(str)
-    def __init__(self):
-        super().__init__()
-        self._stop_requested = False
-    def requestInterruption(self):
-        self._stop_requested = True
-        super().requestInterruption()
-    def run(self):
-        path = find_xilinx_cli()
-        self.finished.emit(path)
 
 class XilinxTab(QWidget):
     def __init__(self, parent=None):
@@ -121,8 +107,8 @@ class XilinxTab(QWidget):
 
     def search_cli(self):
         self.cli_path.setText("")
-        self.search_thread = SearchThread()
-        self.search_thread.finished.connect(self.on_search_finished)
+        self.search_thread = tools.SearchThread(find_xilinx_cli, self)
+        self.search_thread.found.connect(self.on_search_finished)
         self.progress_dialog = QProgressDialog("Поиск CLI... Это может занять время.", "Отмена", 0, 0, self)
         self.progress_dialog.setWindowTitle("Поиск CLI")
         self.progress_dialog.setMinimumWidth(400)
@@ -148,30 +134,15 @@ class XilinxTab(QWidget):
             self.progress_dialog.canceled.connect(self.progress_dialog.close)
 
     def on_search_canceled(self):
-        if self.search_thread.isRunning():
+        if self.search_thread and self.search_thread.isRunning():
             self.search_thread.requestInterruption()
-            self.search_thread.wait()
 
     def save_cli_path(self, path):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        os.makedirs(resources_dir, exist_ok=True)
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-        else:
-            settings = {}
-        settings['xilinx_cli_path'] = path
-        with open(settings_path, 'w') as f:
-            json.dump(settings, f)
+        tools.save_setting('xilinx_cli_path', path)
 
     def load_cli_path(self):
-        resources_dir = data_path('resources')
-        settings_path = os.path.join(resources_dir, 'settings.json')
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r') as f:
-                settings = json.load(f)
-                self.cli_path.setText(settings.get('xilinx_cli_path', ''))
+        path = tools.get_setting('xilinx_cli_path')
+        self.cli_path.setText(path if path and os.path.exists(path) else '')
 
     def refresh_mcs_list(self):
         self.mcs_combo.clear()
@@ -210,6 +181,8 @@ class XilinxTab(QWidget):
         return '\n'.join(filtered_lines)
 
     def check_jtag(self):
+        """Опрос JTAG занимает до минуты, поэтому идёт в фоне —
+        иначе всё это время окно висит «Не отвечает»."""
         cli_path = self.cli_path.text()
         if not cli_path:
             QMessageBox.warning(self, "Ошибка", "Укажите путь к CLI!")
@@ -217,11 +190,9 @@ class XilinxTab(QWidget):
         if not os.path.exists(cli_path):
             self.log.append(f"CLI файл не найден: {cli_path}")
             return
-        is_vivado = self.is_vivado_cli(cli_path)
-        try:
-            # TCL для проверки
-            if is_vivado:
-                tcl_script = """
+
+        if self.is_vivado_cli(cli_path):
+            tcl_script = """
 open_hw_manager
 connect_hw_server -url TCP:localhost:3121 -allow_non_jtag
 set targets [get_hw_targets]
@@ -242,45 +213,58 @@ if {[llength $targets] > 0} {
 close_hw_manager
 exit
 """
-            else:
-                tcl_script = """
+        else:
+            tcl_script = """
 set url "TCP:localhost:3121"
 connect -url $url
 targets
 exit
 """
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.tcl', mode='w') as tcl_file:
-                tcl_file.write(tcl_script)
-                tcl_path = tcl_file.name
-            cmd = self.get_cmd(cli_path, tcl_path)
-            self.log.append(f"Выполнение команды: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            os.unlink(tcl_path)
-            self.log.append(self.filter_output(result.stdout + result.stderr))
-            if result.returncode != 0:
-                self.log.append(f"Ошибка выполнения: код {result.returncode}")
-                return
-            output = result.stdout + result.stderr
-            filtered_output = self.filter_output(output)
-            stdout_lower = filtered_output.lower()
-            if "error" in stdout_lower or "no targets found" in stdout_lower or "no devices found" in stdout_lower or "unable to connect" in stdout_lower:
-                self.jtag_status.set_state("err", "Не найден")
-                self.flash_btn.setEnabled(False)
-                self.erase_btn.setEnabled(False)
-                self.log.append("Проверьте: 1) Подключен ли JTAG-кабель? 2) Установлены ли драйверы? 3) Запитана ли плата? 4) Нет ли ошибок в Device Manager? 5) Убейте все процессы hw_server.exe в Диспетчере задач и попробуйте снова.")
-            elif ("targets found" in stdout_lower or "connect successful" in stdout_lower or "devices found" in stdout_lower) and ("xc" in stdout_lower or "jtag" in stdout_lower or "fpga" in stdout_lower or "digilent" in stdout_lower or "xilinx_tcf" in stdout_lower or "xc7s25" in stdout_lower):
-                self.jtag_status.set_state("on", "Подключен")
-                self.flash_btn.setEnabled(True)
-                self.erase_btn.setEnabled(True)
-            else:
-                self.jtag_status.set_state("err", "Не найден")
-                self.flash_btn.setEnabled(False)
-                self.erase_btn.setEnabled(False)
-                self.log.append("Неизвестный статус. Проверьте вывод.")
-        except subprocess.TimeoutExpired:
-            self.log.append("Таймаут выполнения!")
-        except Exception as e:
-            self.log.append(f"Ошибка: {str(e)}")
+        tcl_path = tools.temp_script(tcl_script, '.tcl')
+        cmd = self.get_cmd(cli_path, tcl_path)
+        self.log.append(f"Выполнение команды: {' '.join(cmd)}")
+        self.connect_btn.setEnabled(False)
+        self.jtag_status.set_state("move", "Опрос…")
+        self.check_thread = tools.CommandThread(cmd, timeout=60, parent=self)
+        self.check_thread.done.connect(
+            lambda code, out, t=tcl_path: self._on_jtag_checked(code, out, t))
+        self.check_thread.failed.connect(
+            lambda msg, t=tcl_path: self._on_jtag_check_failed(msg, t))
+        self.check_thread.start()
+
+    def _set_jtag_found(self, found):
+        self.flash_btn.setEnabled(found)
+        self.erase_btn.setEnabled(found)
+
+    def _on_jtag_checked(self, code, out, tcl_path):
+        tools.drop_temp(tcl_path)
+        self.connect_btn.setEnabled(True)
+        filtered = self.filter_output(out)
+        self.log.append(filtered)
+        if code != 0:
+            self.log.append(f"Ошибка выполнения: код {code}")
+            self.jtag_status.set_state("err", "Не найден")
+            self._set_jtag_found(False)
+            return
+        low = filtered.lower()
+        if "error" in low or "no targets found" in low or "no devices found" in low or "unable to connect" in low:
+            self.jtag_status.set_state("err", "Не найден")
+            self._set_jtag_found(False)
+            self.log.append("Проверьте: 1) Подключен ли JTAG-кабель? 2) Установлены ли драйверы? 3) Запитана ли плата? 4) Нет ли ошибок в Device Manager? 5) Убейте все процессы hw_server.exe в Диспетчере задач и попробуйте снова.")
+        elif ("targets found" in low or "connect successful" in low or "devices found" in low) and ("xc" in low or "jtag" in low or "fpga" in low or "digilent" in low or "xilinx_tcf" in low or "xc7s25" in low):
+            self.jtag_status.set_state("on", "Подключен")
+            self._set_jtag_found(True)
+        else:
+            self.jtag_status.set_state("err", "Не найден")
+            self._set_jtag_found(False)
+            self.log.append("Неизвестный статус. Проверьте вывод.")
+
+    def _on_jtag_check_failed(self, msg, tcl_path):
+        tools.drop_temp(tcl_path)
+        self.connect_btn.setEnabled(True)
+        self.jtag_status.set_state("err", "Не найден")
+        self._set_jtag_found(False)
+        self.log.append(f"Ошибка: {msg}")
 
     def start_xilinx_flash(self):
         if self.mcs_combo.count() == 0:
@@ -304,10 +288,18 @@ exit
         self.thread = XilinxFlashThread(mcs_path, cli_path, flash_part, erase_only=False)
         self.thread.log.connect(self.log.append)
         self.thread.progress.connect(self.progress_bar.setValue)
-        self.thread.finished.connect(self.on_operation_finished)
+        self.thread.done.connect(self.on_operation_finished)
         self.thread.start()
 
     def start_xilinx_erase(self):
+        if QMessageBox.question(
+                self, "Очистить Config Memory",
+                "Стереть Configuration Memory ПЛИС?\n\n"
+                "Образ в памяти будет потерян, после стирания плата не\n"
+                "загрузится, пока не записать .mcs заново.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No) != QMessageBox.Yes:
+            return
         if self.mcs_combo.count() == 0:
             QMessageBox.warning(self, "Ошибка", "Нет .mcs файлов! Выберите .mcs для определения размера (не будет прошит).")
             return
@@ -329,7 +321,7 @@ exit
         self.thread = XilinxFlashThread(mcs_path, cli_path, flash_part, erase_only=True)
         self.thread.log.connect(self.log.append)
         self.thread.progress.connect(self.progress_bar.setValue)
-        self.thread.finished.connect(self.on_operation_finished)
+        self.thread.done.connect(self.on_operation_finished)
         self.thread.start()
 
     def on_operation_finished(self, success):

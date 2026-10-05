@@ -9,7 +9,7 @@ import os
 from PyQt5.QtWidgets import QWidget, QGroupBox, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QLineEdit, QMessageBox, QComboBox
 from PyQt5.QtCore import Qt
 from logic import get_logic_module  # Импорт из logic/__init__.py
-from utils.helpers import resource_path  # Импорт resource_path
+from utils.helpers import resource_path, data_path
 from ui.kit.glass import glow
 from ui.styles import THEME, role
 
@@ -155,7 +155,11 @@ class VersionPanel(QWidget):
         self.connect_btn.clicked.connect(self.toggle_com_connection)
 
     def load_projects(self):
-        json_path = resource_path('resources/projects.json')
+        # сначала файл рядом с программой (его можно править без
+        # пересборки), и только потом зашитый в exe
+        json_path = data_path('resources', 'projects.json')
+        if not os.path.exists(json_path):
+            json_path = resource_path('resources/projects.json')
         if os.path.exists(json_path):
             with open(json_path, 'r', encoding='utf-8') as f:
                 self.projects = json.load(f)
@@ -187,8 +191,12 @@ class VersionPanel(QWidget):
             logic_type = self.selected_board['logic_type']
             self.logic_module = get_logic_module(logic_type)
             if not self.logic_module:
-                QMessageBox.warning(self, "Предупреждение",
-                                    f"Логика '{logic_type}' для платы '{text}' не найдена.")
+                import logic as logic_pkg
+                reason = logic_pkg.last_error
+                QMessageBox.warning(
+                    self, "Предупреждение",
+                    f"Логика '{logic_type}' для платы '{text}' не загружена."
+                    + (f"\n\nПричина: {reason}" if reason else ""))
                 self.logic_module = None
         else:
             self.logic_module = None

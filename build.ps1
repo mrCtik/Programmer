@@ -34,9 +34,10 @@ Copy-Item 'dist\BLCL_Programmer.exe' $deploy -Force
 Copy-Item 'firmware' $deploy -Recurse -Force
 Copy-Item 'mcs' $deploy -Recurse -Force
 
-# настройки не перетираем: там запомненные пути к ST-Link/Vivado/J-Link
+# настройки и список проектов не перетираем: там запомненные пути
+# к ST-Link/Vivado/J-Link и добавленные платы
 New-Item -ItemType Directory -Force (Join-Path $deploy 'resources') | Out-Null
-foreach ($f in 'settings.json', 'settings3.json', 'mcu.json') {
+foreach ($f in 'settings.json', 'settings3.json', 'mcu.json', 'projects.json') {
     $dst = Join-Path $deploy "resources\$f"
     if (-not (Test-Path $dst)) { Copy-Item "resources\$f" $dst -Force }
 }
