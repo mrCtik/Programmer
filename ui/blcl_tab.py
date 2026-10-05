@@ -10,7 +10,6 @@ import re
 import time
 import struct
 from ui.kit.glass import glow
-from ui.kit.widgets import Pill
 from ui.styles import THEME, group, role
 
 class BlclTab(QWidget):

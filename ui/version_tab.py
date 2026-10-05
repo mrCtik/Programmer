@@ -11,7 +11,6 @@ from PyQt5.QtCore import Qt
 from logic import get_logic_module  # Импорт из logic/__init__.py
 from utils.helpers import resource_path  # Импорт resource_path
 from ui.kit.glass import glow
-from ui.kit.widgets import Pill
 from ui.styles import THEME, role
 
 class VersionPanel(QWidget):
