@@ -1,5 +1,5 @@
 # ui/version_tab.py
-# Вынос панели с информацией о версии и дате прошивки, плюс логика COM-подключения
+# Вынос панели с информацией о версии, дате и серийном номере прошивки + логика COM-подключения
 
 import time
 import serial.tools.list_ports
@@ -14,24 +14,24 @@ from utils.helpers import resource_path  # Импорт resource_path
 class VersionPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent  # Ссылка на MainWindow, если нужно
+        self.parent = parent
         self.serial_port = None
         self.is_com_connected = False
         self.original_version = ""
-        self.original_date = ""
-        self.projects = []  # Список проектов из JSON
-        self.selected_project = None  # Текущий выбранный проект
-        self.selected_board = None  # Текущая выбранная плата
-        self.logic_module = None  # Модуль с логикой для выбранной платы
+        self.original_date   = ""
+        self.original_serial = ""
+        self.projects = []           # Список проектов из JSON
+        self.selected_project = None
+        self.selected_board = None
+        self.logic_module = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Группа COM-порта (вынесено из main.py)
+        # ── COM Settings ───────────────────────────────────────────────
         com_group = QGroupBox("COM Settings")
         com_vbox = QVBoxLayout()
 
-        # Строка COM-порт
         com_row = QHBoxLayout()
         com_row.addWidget(QLabel("COM-порт:"))
         self.com_combo = QComboBox()
@@ -39,7 +39,6 @@ class VersionPanel(QWidget):
         com_row.addWidget(self.com_combo)
         com_vbox.addLayout(com_row)
 
-        # Строка Baudrate
         baud_row = QHBoxLayout()
         baud_row.addWidget(QLabel("Baudrate:"))
         self.baud_combo = QComboBox()
@@ -51,7 +50,7 @@ class VersionPanel(QWidget):
         com_group.setLayout(com_vbox)
         layout.addWidget(com_group)
 
-        # Кнопки подключения и обновления под COM Settings
+        # Кнопки подключения / обновления портов
         buttons_row = QHBoxLayout()
         self.connect_btn = QPushButton("Подключиться")
         self.connect_btn.setFixedHeight(40)
@@ -63,78 +62,88 @@ class VersionPanel(QWidget):
         buttons_row.addWidget(refresh_btn)
         layout.addLayout(buttons_row)
 
-        # Выпадающий список проектов под панелью COM
+        # ── Выбор проекта и платы ──────────────────────────────────────
         project_group = QGroupBox("Select Project")
         project_vbox = QVBoxLayout()
         project_row = QHBoxLayout()
         project_row.addWidget(QLabel("Проект:"))
         self.project_combo = QComboBox()
-        self.project_combo.setMinimumWidth(300)  # Сделали шире
+        self.project_combo.setMinimumWidth(300)
         self.project_combo.currentTextChanged.connect(self.on_project_changed)
         project_row.addWidget(self.project_combo)
         project_vbox.addLayout(project_row)
         project_group.setLayout(project_vbox)
         layout.addWidget(project_group)
 
-        # Выпадающий список плат (boards) под проектом
         board_group = QGroupBox("Select Board")
         board_vbox = QVBoxLayout()
         board_row = QHBoxLayout()
         board_row.addWidget(QLabel("Плата:"))
         self.board_combo = QComboBox()
-        self.board_combo.setMinimumWidth(300)  # Сделали шире
+        self.board_combo.setMinimumWidth(300)
         self.board_combo.currentTextChanged.connect(self.on_board_changed)
         board_row.addWidget(self.board_combo)
         board_vbox.addLayout(board_row)
         board_group.setLayout(board_vbox)
         layout.addWidget(board_group)
 
-        # Текущая информация о прошивке
+        # ── Текущая информация ─────────────────────────────────────────
         current_group = QGroupBox("Current Firmware Info")
         current_vbox = QVBoxLayout()
         self.version_label = QLabel("Версия прошивки: Неизвестно")
-        self.version_label.setMinimumWidth(200)  # Сделали уже (если это подпись)
-        self.date_label = QLabel("Дата прошивки: Неизвестно")
-        self.date_label.setMinimumWidth(200)  # Сделали уже (если это подпись)
+        self.date_label    = QLabel("Дата прошивки:   Неизвестно")
+        self.serial_label  = QLabel("Серийный номер:  Неизвестно")
+        for lbl in (self.version_label, self.date_label, self.serial_label):
+            lbl.setMinimumWidth(280)
         current_vbox.addWidget(self.version_label)
         current_vbox.addWidget(self.date_label)
+        current_vbox.addWidget(self.serial_label)
         current_group.setLayout(current_vbox)
         layout.addWidget(current_group)
 
-        # Кнопка обновления информации
         self.update_info_btn = QPushButton("Обновить информацию")
         self.update_info_btn.setEnabled(False)
         self.update_info_btn.clicked.connect(self.update_firmware_info)
         layout.addWidget(self.update_info_btn)
 
-        # Новая информация о прошивке
+        # ── Новая информация ───────────────────────────────────────────
         new_group = QGroupBox("New Firmware Info")
         new_vbox = QVBoxLayout()
 
-        version_row = QHBoxLayout()
-        version_row.addWidget(QLabel("Новая версия:"))
+        # Версия
+        v_row = QHBoxLayout()
+        v_row.addWidget(QLabel("Новая версия:"))
         self.version_input = QLineEdit()
         self.version_input.textChanged.connect(self.check_changes)
-        version_row.addWidget(self.version_input)
-        new_vbox.addLayout(version_row)
+        v_row.addWidget(self.version_input)
+        new_vbox.addLayout(v_row)
 
-        date_row = QHBoxLayout()
-        date_row.addWidget(QLabel("Новая дата:"))
+        # Дата
+        d_row = QHBoxLayout()
+        d_row.addWidget(QLabel("Новая дата:"))
         self.date_input = QLineEdit(time.strftime("%Y-%m-%d"))
         self.date_input.textChanged.connect(self.check_changes)
-        date_row.addWidget(self.date_input)
-        new_vbox.addLayout(date_row)
+        d_row.addWidget(self.date_input)
+        new_vbox.addLayout(d_row)
+
+        # Серийный номер
+        s_row = QHBoxLayout()
+        s_row.addWidget(QLabel("Новый серийный номер:"))
+        self.serial_input = QLineEdit()
+        self.serial_input.textChanged.connect(self.check_changes)
+        s_row.addWidget(self.serial_input)
+        new_vbox.addLayout(s_row)
 
         new_group.setLayout(new_vbox)
         layout.addWidget(new_group)
 
-        # Кнопка установки новой информации
+        # Кнопка отправки
         self.set_info_btn = QPushButton("Установить информацию")
         self.set_info_btn.setEnabled(False)
         self.set_info_btn.clicked.connect(self.set_firmware_info)
         layout.addWidget(self.set_info_btn)
 
-        # Загружаем проекты (если нужно перезагрузить при init)
+        # Загрузка проектов
         self.load_projects()
 
         self.connect_btn.clicked.connect(self.toggle_com_connection)
@@ -146,12 +155,11 @@ class VersionPanel(QWidget):
                 self.projects = json.load(f)
                 for project in self.projects:
                     self.project_combo.addItem(project['name'])
-            # NEW: Инициализация первого проекта и плат, если есть
             if self.project_combo.count() > 0:
                 self.project_combo.setCurrentIndex(0)
                 self.on_project_changed(self.project_combo.currentText())
         else:
-            QMessageBox.warning(self, "Ошибка", "Файл projects.json не найден в папке resources!")
+            QMessageBox.warning(self, "Ошибка", "Файл projects.json не найден!")
 
     def on_project_changed(self, text):
         self.selected_project = next((p for p in self.projects if p['name'] == text), None)
@@ -161,7 +169,6 @@ class VersionPanel(QWidget):
         if self.selected_project and 'boards' in self.selected_project:
             for board in self.selected_project['boards']:
                 self.board_combo.addItem(board['name'])
-            # NEW: Инициализация первой платы, если есть
             if self.board_combo.count() > 0:
                 self.board_combo.setCurrentIndex(0)
                 self.on_board_changed(self.board_combo.currentText())
@@ -174,7 +181,8 @@ class VersionPanel(QWidget):
             logic_type = self.selected_board['logic_type']
             self.logic_module = get_logic_module(logic_type)
             if not self.logic_module:
-                QMessageBox.warning(self, "Предупреждение", f"Логика '{logic_type}' для платы '{text}' не реализована (файл logic_{logic_type}.py не найден).")
+                QMessageBox.warning(self, "Предупреждение",
+                                    f"Логика '{logic_type}' для платы '{text}' не найдена.")
                 self.logic_module = None
         else:
             self.logic_module = None
@@ -185,24 +193,15 @@ class VersionPanel(QWidget):
 
     def reset_info(self):
         self.version_label.setText("Версия прошивки: Неизвестно")
-        self.date_label.setText("Дата прошивки: Неизвестно")
+        self.date_label.setText(  "Дата прошивки:   Неизвестно")
+        self.serial_label.setText("Серийный номер:  Неизвестно")
         self.original_version = ""
-        self.original_date = ""
+        self.original_date   = ""
+        self.original_serial = ""
         self.version_input.clear()
         self.date_input.setText(time.strftime("%Y-%m-%d"))
+        self.serial_input.clear()
         self.check_changes()
-
-    def calculate_crc8(self, data):
-        crc = 0xFF
-        for byte in data:
-            crc ^= byte
-            for _ in range(8):
-                if crc & 0x80:
-                    crc = (crc << 1) ^ 0x07
-                else:
-                    crc <<= 1
-            crc &= 0xFF  # Обрезаем до 8 бит
-        return crc
 
     def update_firmware_info(self):
         if not self.is_com_connected or not self.serial_port:
@@ -210,10 +209,13 @@ class VersionPanel(QWidget):
         if not self.logic_module:
             QMessageBox.warning(self, "Ошибка", "Выберите проект и плату с поддерживаемой логикой!")
             return
-        # Всплывающее окно с просьбой перезагрузить
-        reply = QMessageBox.information(self, "Инструкция", "Перезапустите устройство (STM32) сейчас, чтобы оно отправило информацию, и нажмите OK для начала ожидания данных.")
+
+        reply = QMessageBox.information(self, "Инструкция",
+                                        "Перезапустите устройство сейчас, чтобы оно отправило информацию.\n"
+                                        "После перезапуска нажмите OK.")
         if reply != QMessageBox.Ok:
             return
+
         self.logic_module.read_firmware_info(self.serial_port, self)
 
     def set_firmware_info(self):
@@ -222,35 +224,48 @@ class VersionPanel(QWidget):
         if not self.logic_module:
             QMessageBox.warning(self, "Ошибка", "Выберите проект и плату с поддерживаемой логикой!")
             return
+
         version = self.version_input.text().strip()
-        date = self.date_input.text().strip()
+        date    = self.date_input.text().strip()
+        serial  = self.serial_input.text().strip()
+
         if not version or not date:
-            QMessageBox.warning(self, "Ошибка", "Заполните поля версии и даты!")
+            QMessageBox.warning(self, "Ошибка", "Версия и дата — обязательные поля!")
             return
-        # Всплывающее окно с просьбой перезагрузить
-        reply = QMessageBox.information(self, "Инструкция", "Перезапустите устройство (STM32) сейчас, чтобы оно вошло в режим ожидания обновления, и нажмите OK в течение 5 секунд после перезапуска для отправки команды.")
+
+        # serial может быть пустым — в этом случае в прошивке обычно оставляют старое значение
+
+        reply = QMessageBox.information(self, "Инструкция",
+                                        "Перезапустите устройство сейчас.\n"
+                                        "После перезапуска в течение 5 секунд нажмите OK для отправки команды.")
         if reply != QMessageBox.Ok:
             return
-        self.serial_port.reset_input_buffer()  # Очистка буфера перед отправкой
-        self.logic_module.send_update(self.serial_port, version, date, self)
+
+        self.serial_port.reset_input_buffer()
+        self.logic_module.send_update(self.serial_port, version, date, serial, self)
 
     def check_changes(self):
-        # Проверяем, изменились ли значения
-        current_version = self.version_input.text().strip()
-        current_date = self.date_input.text().strip()
-        changed = (current_version != self.original_version) or (current_date != self.original_date)
+        cv = self.version_input.text().strip()
+        cd = self.date_input.text().strip()
+        cs = self.serial_input.text().strip()
+
+        changed = (
+            (cv != self.original_version) or
+            (cd != self.original_date)   or
+            (cs != self.original_serial)
+        )
         self.set_info_btn.setEnabled(changed and self.is_com_connected)
 
-    # Методы для COM (вынесено из main.py)
+    # ── COM-порты ──────────────────────────────────────────────────
     def refresh_com_ports(self):
         self.com_combo.clear()
         ports = serial.tools.list_ports.comports()
         for p in ports:
-            description = p.description
-            port_suffix = f" ({p.device})"
-            if description.endswith(port_suffix):
-                description = description[:-len(port_suffix)]
-            self.com_combo.addItem(f"{p.device} - {description}")
+            desc = p.description
+            suffix = f" ({p.device})"
+            if desc.endswith(suffix):
+                desc = desc[:-len(suffix)]
+            self.com_combo.addItem(f"{p.device} - {desc}")
 
     def toggle_com_connection(self):
         if self.is_com_connected:
@@ -259,21 +274,22 @@ class VersionPanel(QWidget):
             self.connect_com()
 
     def connect_com(self):
-        current_text = self.com_combo.currentText()
-        com_port = current_text.split(' - ')[0] if current_text else ''
-        baud = int(self.baud_combo.currentText())
-        if not com_port:
+        text = self.com_combo.currentText()
+        if not text:
             QMessageBox.warning(self, "Ошибка", "Выберите COM-порт!")
             return
+        com_port = text.split(' - ')[0]
+        baud = int(self.baud_combo.currentText())
+
         try:
-            self.serial_port = serial.Serial(com_port, baudrate=baud, timeout=1)  # Настройте baudrate по необходимости
+            self.serial_port = serial.Serial(com_port, baudrate=baud, timeout=1)
             self.connect_btn.setText("Отключиться")
             self.set_enabled(True)
             self.is_com_connected = True
-            QMessageBox.information(self, "Успех", f"Подключено к {current_text}")
+            QMessageBox.information(self, "Успех", f"Подключено: {text}")
         except Exception as e:
-            print(f"Error opening port: {e}")  # Добавлен print для отладки в консоль
-            QMessageBox.warning(self, "Ошибка", f"Не удалось подключиться: {e}")
+            print(f"Ошибка открытия порта: {e}")
+            QMessageBox.warning(self, "Ошибка", f"Не удалось подключиться:\n{e}")
 
     def disconnect_com(self):
         if self.serial_port:
@@ -283,4 +299,4 @@ class VersionPanel(QWidget):
         self.set_enabled(False)
         self.reset_info()
         self.is_com_connected = False
-        QMessageBox.information(self, "Успех", "Отключено от COM-порта")
+        QMessageBox.information(self, "Успех", "Порт отключён")

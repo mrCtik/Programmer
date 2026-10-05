@@ -154,6 +154,17 @@ class MainWindow(QMainWindow):
         return "<p>Документация не найдена.</p>"
 
 if __name__ == "__main__":
+
+    # Только для Windows — заставляем taskbar показывать нашу иконку
+    import platform
+    if platform.system() == "Windows":
+        try:
+            from ctypes import windll
+            myappid = 'com.yourname.blclprogrammer.1.0'  # можно любое уникальное имя
+            windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except ImportError:
+            pass
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

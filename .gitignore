@@ -8,3 +8,12 @@ webtalk.jou
 # Игнорировать файлы типа webtalk_*.backup.log
 webtalk_*.backup.log
 webtalk.log
+
+# сборка PyInstaller — в git ей делать нечего (там же лежал exe на 39 МБ)
+build/
+dist/
+*.pyc
+__pycache__/
+
+# выбранный акцент оформления
+ui.json

@@ -13,7 +13,7 @@ class FlashThread(QThread):
         self.ser = ser
         self.files_info = files_info
         self.chunk_size = 1024
-        self.timeout = 10.0
+        self.timeout = 1000.0
         self.verbose = verbose  # Флаг детального лога
         self.try_cmd = try_cmd
         self.clear_buffer = clear_buffer
